@@ -113,9 +113,9 @@ def health():
         with ComfyClient(url) as comfy:
             result = comfy.health()
         devices = result.get('devices') or []
-        return {'server': 'ok', 'comfyui': 'connected', 'devices': [d.get('name', '') for d in devices]}
+        return {'server': 'ok', 'mode': 'local', 'comfyui': 'connected', 'devices': [{'name': (d.get('name') or d.get('device_name') or 'GPU'), 'vram_gb': round((d.get('vram_total') or 0) / (1024 ** 3), 1)} for d in devices]}
     except Exception:
-        return {'server': 'ok', 'comfyui': 'offline', 'devices': []}
+        return {'server': 'ok', 'mode': 'local', 'comfyui': 'offline', 'devices': []}
 
 
 @app.post('/api/projects', status_code=201)
