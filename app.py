@@ -197,7 +197,7 @@ async def upload_audio(project_id: str, file: UploadFile = File(...)):
     return {'audio_file': filename}
 
 
-def _worker(job_id: str, project_id: str):
+def _worker(job_id: str, project_id: str, preview: bool = False):
     with _lock:
         _jobs[job_id].update(status='running', message='Connecting to ComfyUI')
     try:
@@ -208,22 +208,29 @@ def _worker(job_id: str, project_id: str):
             with _lock:
                 _jobs[job_id].update(message=message, progress=round(100 * fraction, 1))
 
-        render_project(project, root, update)
+        render_project(project, root, update, preview=preview)
         with _lock:
             _jobs[job_id].update(status='done', progress=100, message='Video ready',
-                                 video_url=f'/api/projects/{project_id}/video')
+                                 video_url=(f'/api/projects/{project_id}/preview.mp4' if preview else f'/api/projects/{project_id}/video'))
     except Exception as exc:
         with _lock:
             _jobs[job_id].update(status='failed', message=str(exc)[:2500])
 
 
-@app.post('/api/projects/{project_id}/render', status_code=202)
-def start_render(project_id: str):
+def _queue_video_render(project_id: str, *, preview: bool = False):
     project = load_project(project_id)
-    missing = sorted({s['character'] for s in project['scenes']} - project['characters'].keys())
-    if missing:
-        raise HTTPException(422, f'Missing character images: {", ".join(missing)}')
-    for scene in project['scenes']:
+    if preview:
+        candidate = next((s for s in project['scenes']
+                          if s['mode'] == 'talk' and s['character'] in project['characters']), None)
+        if candidate is None:
+            raise HTTPException(422, "Upload the driver's portrait to preview video+audio")
+        scenes = [candidate]
+    else:
+        scenes = project['scenes']
+        missing = sorted({s['character'] for s in scenes} - project['characters'].keys())
+        if missing:
+            raise HTTPException(422, f'Missing character images: {", ".join(missing)}')
+    for scene in scenes:
         if scene.get('audio_file') and not (directory(project_id) / 'audio' / scene['audio_file']).is_file():
             raise HTTPException(422, 'Audio file is missing')
     with _lock:
@@ -231,9 +238,20 @@ def start_render(project_id: str):
             raise HTTPException(409, 'Render is already running')
         job_id = str(uuid.uuid4())
         _jobs[job_id] = {'id': job_id, 'project_id': project_id, 'status': 'queued',
-                         'progress': 0, 'message': 'Queued'}
-        executor.submit(_worker, job_id, project_id)
+                         'progress': 0, 'message': 'Queued',
+                         'mode': 'preview' if preview else 'full'}
+        executor.submit(_worker, job_id, project_id, preview)
     return _jobs[job_id]
+
+
+@app.post('/api/projects/{project_id}/render', status_code=202)
+def start_render(project_id: str):
+    return _queue_video_render(project_id)
+
+
+@app.post('/api/projects/{project_id}/preview', status_code=202)
+def preview_with_audio(project_id: str):
+    return _queue_video_render(project_id, preview=True)
 
 
 @app.get('/api/jobs/{job_id}')
@@ -242,6 +260,15 @@ def get_job(job_id: str):
         if job_id not in _jobs:
             raise HTTPException(404, 'Unknown job')
         return _jobs[job_id].copy()
+
+
+@app.get('/api/projects/{project_id}/preview.mp4')
+def preview_video(project_id: str):
+    video = directory(project_id) / 'preview.mp4'
+    if not video.is_file():
+        raise HTTPException(404, 'Preview is not ready')
+    return FileResponse(video, media_type='video/mp4',
+                        filename='RealMotion-Preview-Voice-5s.mp4')
 
 
 @app.get('/api/projects/{project_id}/video')
