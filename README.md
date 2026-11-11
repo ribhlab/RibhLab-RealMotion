@@ -1,10 +1,10 @@
 # RibhLab RealMotion 🎬
 
-**Open-source, local-first AI video studio for turning character portraits into actual generated motion clips, with audio-driven talking shots and automatic 30-second MP4 assembly.**
+**Open-source, local-first AI video studio for turning character portraits into actual generated motion clips, with local synthetic Arabic voice soundtracks and automatic 30-second MP4 assembly.**
 
 RealMotion is **not** a slideshow maker. Every shot is submitted to actual video-generation models running in **ComfyUI**. If ComfyUI, the GPU or the model files are missing, the job reports a real error rather than falsely claiming that still-image transitions are AI animation.
 
-> **Status: development MVP (v0.1).** The UI, upload and storyboard API, native Wan 2.2 graph builders, ComfyUI queueing/download, optional voice generation, MP4 assembly and unit tests are implemented. The complete AI rendering pipeline has **not been executed end-to-end on a model-loaded GPU** in this environment. Face identity, accurate Darija lip-sync and prompt adherence depend on model quality and are **not guaranteed**. We deliberately do not claim otherwise.
+> **Status: development MVP (v0.1).** The UI, upload and storyboard API, Wan 2.2 GGUF (Q2) graph builders, ComfyUI queueing/download, optional voice generation, MP4 assembly and unit tests are implemented. The complete AI rendering pipeline has **not been executed end-to-end on a model-loaded GPU** in this environment. Face identity, accurate Darija lip-sync and prompt adherence depend on model quality and are **not guaranteed**. We deliberately do not claim otherwise.
 
 ## ⚡ Local NVIDIA mode — default (no paid API)
 
@@ -12,9 +12,10 @@ RealMotion now runs video generation **on your own Windows NVIDIA GPU** using lo
 
 - **No Replicate, no Vercel, no per-video credits or remote API keys** required by the default local app.
 - **Start on Windows:** download the repo ZIP and double-click `Start-RealMotion.bat`.
-- **One-time Wan 5B download:** after first launch, double-click `Install-Wan-Motion-Models.bat` to fetch/verify official weights (~18 GB).
+- **One-time Wan 5B download:** after first launch, double-click `Install-Wan-Motion-Models.bat` to fetch/verify official weights (about 10 GB).
 - **Optional one-click offline Arabic voice:** double-click `Install-Offline-Voice.bat`.
-- **Lower-VRAM test:** use **⚡ تجربة 30 ثانية حركة فقط** inside the local app to generate motion with Wan 5B and no 14B speaking model.
+- **First video WITH voice:** upload one driver's photo, click **🎤🎬 جرّب 5 ثواني بالصورة والصوت**. Wan Q2 generates real motion, Piper Arabic/Windows SAPI generates spoken audio, and FFmpeg merges both to MP4. This does **not** lip-sync the mouth.
+- **Longer movie:** upload four photos, then render six scenes as a 30-second MP4 using the same lightweight audio+video approach.
 - **One-time prerequisites:** Python 3.11+, FFmpeg, NVIDIA driver, ComfyUI Portable NVIDIA, downloaded Wan model files.
 - **Optional offline speech:** `windows/setup_voice.ps1` installs a local Arabic Piper model once; alternatively Windows SAPI or your own recordings can be used.
 - **Local page:** `http://127.0.0.1:8000` on the same computer. The public GitHub Pages is only a download portal, not an upload destination.
@@ -31,8 +32,9 @@ RealMotion now runs video generation **on your own Windows NVIDIA GPU** using lo
 - Four configurable characters (yellow-car driver, unicorn, Spider-themed hero, bat-themed hero); **bring your own portraits**.
 - Six editable 5-second shots by default, with validation requiring **exactly 30 seconds** in total.
 - Two genuine generation modes:
-  - **Motion / car scene:** Wan2.2-TI2V-5B native ComfyUI video generation.
-  - **Talking / lip movement:** Wan2.2-S2V-14B conditioned on real audio and a portrait. This is a separate, heavier model, not a mouth-opening GIF.
+  - **Motion / car scene:** Wan2.2-TI2V-5B Q2 GGUF on local ComfyUI.
+  - **Speaking soundtrack:** genuine AI-generated motion plus an offline Piper/Windows synthetic voice or uploaded recording. This is audio overlay, **not automatically synchronized lips**.
+  - **Optional future lip sync:** separate model/processing, not included in the lightweight 6 GB workflow.
 - Optional uploaded dialogue recordings; or free **offline** speech synthesis with Piper Arabic or Windows SAPI. No cloud voice API is used.
 - A sequential job worker, progress endpoint, error reporting, FFmpeg transcoding and final MP4 download.
 - Photos/voices and generated clips remain under the local `local_data/` folder, which is excluded from Git.
@@ -59,36 +61,19 @@ uvicorn app:app --host 127.0.0.1 --port 8000
 
 Open **http://127.0.0.1:8000**. Upload character images, edit the 30-second storyboard, save it, click **Generate**, and watch the status. API documentation: **http://127.0.0.1:8000/api/docs**.
 
-### Install Wan models in ComfyUI
+### Models for GTX 1660 SUPER 6 GB
 
-The app's workflow uses the **official core ComfyUI nodes**, including `Wan22ImageToVideoLatent`, `WanSoundImageToVideo`, `CreateVideo` and `SaveVideo`. Update ComfyUI until they are available.
+Use the bundled `Install-Wan-Motion-Models.bat` after first running `Start-RealMotion.bat`. It automatically downloads and SHA256-verifies these three files (~10 GB total):
 
-| Model file (default name) | ComfyUI folder | Needed for |
+| File | ComfyUI folder | Purpose |
 |---|---|---|
-| `wan2.2_ti2v_5B_fp16.safetensors` | `models/diffusion_models` | image-to-video |
-| `wan2.2_vae.safetensors` | `models/vae` | image-to-video |
-| `umt5_xxl_fp8_e4m3fn_scaled.safetensors` | `models/text_encoders` | both |
-| `wan2.2_s2v_14B_fp8_scaled.safetensors` | `models/diffusion_models` | talking |
-| `wan_2.1_vae.safetensors` | `models/vae` | talking |
-| `wav2vec2_large_english_fp16.safetensors` | `models/audio_encoders` | talking |
+| `Wan2.2-TI2V-5B-Q2_K.gguf` (1.85 GB) | `models/unet/` | Quantized Wan 5B video model |
+| `wan2.2_vae.safetensors` (1.41 GB) | `models/vae/` | Video decoding |
+| `umt5_xxl_fp8_e4m3fn_scaled.safetensors` (6.74 GB) | `models/text_encoders/` | Prompt encoder; may require RAM offloading |
 
-Model and workflow references (check download rights and disk space):
-- [ComfyUI Wan 2.2 official guide](https://docs.comfy.org/tutorials/video/wan/wan2_2)
-- [Wan 2.2 5B native workflow](https://github.com/Comfy-Org/workflow_templates/blob/main/templates/video_wan2_2_5B_ti2v.json)
-- [Wan 2.2 S2V audio-driven workflow](https://github.com/Comfy-Org/workflow_templates/blob/main/templates/video_wan2_2_14B_s2v.json)
-- [Wan 2.2 model card / licenses](https://huggingface.co/Comfy-Org/Wan-2.2)
+The `UnetLoaderGGUF` node must be installed from [city96/ComfyUI-GGUF](https://github.com/city96/ComfyUI-GGUF) and the updated ComfyUI core must include `Wan22ImageToVideoLatent`, `CreateVideo`, and `SaveVideo`. Your local GPU configuration may still run out of memory or take substantial time: a 6 GB GTX 1660 SUPER is below typical Wan 5B FP16 recommendations. Default frame size is 288×512 with optional `WAN_WIDTH`/`WAN_HEIGHT` environment overrides (multiples of 16). The result is **not guaranteed** to run successfully until actually tested with model weights.
 
-The native 5B graph sends one portrait plus a motion prompt to Wan and saves a generated clip. The S2V graph uploads the portrait **and an audio track** to ComfyUI and generates the facial/speech motion. Audio uploads use ComfyUI's generic `/upload/image` API (also used for audio input files in compatible versions).
-
-Model filenames and URL can be changed via the environment variables listed in `.env.example` (environment file is a *template*, not loaded automatically). For example:
-
-```bash
-export COMFYUI_URL=http://127.0.0.1:8188
-export WAN_I2V_MODEL=wan2.2_ti2v_5B_fp16.safetensors
-uvicorn app:app --host 127.0.0.1 --port 8000
-```
-
-**Important:** Facial resemblance is probabilistic. Single-portrait I2V does **not** guarantee realistic driving from a portrait taken outside a car; use a starting picture already showing the person in the desired setting for better results. A scene with multiple children interacting needs an appropriate *combined starting reference*, reference-conditioning workflow or manually composed scene; v0.1 does not offer identity locking for several different faces in one shot. S2V audio embedding may be English-biased; Moroccan Arabic results need testing.
+More information: [official ComfyUI Wan tutorial](https://comfyanonymous.github.io/ComfyUI_examples/wan22/) and [QuantStack Wan 5B GGUF](https://huggingface.co/QuantStack/Wan2.2-TI2V-5B-GGUF).
 
 ### Voices — offline by default
 
@@ -103,9 +88,9 @@ Browser (static/index.html + app.js)
     ↕ local FastAPI (app.py)
     ↕ storyboard / local uploads / background job
     ↕ studio.py (ComfyUI client)
-        → Wan I2V 5B: portrait + motion description → AI generated MP4
-        → Wan S2V 14B: portrait + real audio + prompt → AI generated speaking MP4
-    ↕ FFmpeg normalize / concat
+        → Wan I2V 5B Q2 GGUF: portrait + motion description → AI generated MP4
+    ↕ local Piper/Windows voice OR uploaded recording
+    ↕ FFmpeg normalize / add speech / concat
     → final.mp4
 ```
 
