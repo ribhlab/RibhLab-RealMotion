@@ -41,7 +41,7 @@ function renderTray(){
 }
 async function upload(files){
   const allowed=['image/png','image/jpeg','image/webp','video/mp4','video/webm','video/quicktime','video/x-m4v'];
-  const chosen=Array.from(files).filter(file=>allowed.includes(file.type)||/\\.(png|jpe?g|webp|mp4|webm|mov|m4v)$/i.test(file.name));
+  const chosen=Array.from(files).filter(file=>allowed.includes(file.type)||/\.(png|jpe?g|webp|mp4|webm|mov|m4v)$/i.test(file.name));
   if(!chosen.length){status('خاصك تختار صورة JPG / PNG / WEBP أو فيديو MP4 / MOV / WEBM','error');return}
   state.busy=true;updateButton();
   for(const file of chosen){
