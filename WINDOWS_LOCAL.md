@@ -6,7 +6,7 @@ RealMotion now uses **your NVIDIA GPU**. GitHub is for storing and updating the 
 
 The **first installation** requires an Internet connection to download Python packages, ComfyUI and AI model weights. Afterwards, video inference, local speech (Piper or Windows voice), and MP4 assembly can work **without Internet** if every required model is already installed. The local FastAPI server binds to 127.0.0.1 by default, not the public Internet.
 
-> This is an experimental MVP. The code/logic can be tested without a GPU, but a real video render has **not yet been validated end-to-end** on your computer. The 14B talking model needs substantially more VRAM than 5B motion, and natural Moroccan Darija pronunciation and stable identity are not guaranteed.
+> This is an experimental MVP. The code/logic can be tested without a GPU, but a real video render has **not yet been validated end-to-end** on your computer. The local test combines Wan 5B Q2 motion and a Piper speech soundtrack; it does not synchronize lips. Natural Darija pronunciation and facial identity are not guaranteed.
 
 ## Step 1 — hardware check
 
@@ -38,27 +38,17 @@ $env:REALMOTION_COMFYUI_HOME = 'D:\AI\ComfyUI_windows_portable'
 
 ComfyUI must be updated enough to include Wan2.2 core nodes `Wan22ImageToVideoLatent` and `WanSoundImageToVideo`.
 
-## Step 3 — download Wan 2.2 weights once
+## Step 3 — one-time download for Wan 5B Q2 GGUF (6 GB GPU test)
 
-Use the official ComfyUI Wan 2.2 tutorial and model links:
-https://docs.comfy.org/tutorials/video/wan/wan2_2
+After downloading the project ZIP and launching `Start-RealMotion.bat` once, double-click `Install-Wan-Motion-Models.bat` and type `YES`. It installs exactly:
 
-Place files in **ComfyUI/ComfyUI/models/** as follows:
+- `Wan2.2-TI2V-5B-Q2_K.gguf` (~1.85 GB) → `ComfyUI/models/unet/`
+- `wan2.2_vae.safetensors` (~1.41 GB) → `ComfyUI/models/vae/`
+- `umt5_xxl_fp8_e4m3fn_scaled.safetensors` (~6.74 GB) → `ComfyUI/models/text_encoders/`
 
-| Model | Folder under ComfyUI/models/ | Purpose |
-| --- | --- | --- |
-| `wan2.2_ti2v_5B_fp16.safetensors` | `diffusion_models/` | Video motion |
-| `wan2.2_vae.safetensors` | `vae/` | Video motion |
-| `umt5_xxl_fp8_e4m3fn_scaled.safetensors` | `text_encoders/` | Shared text encoder |
-| `wan2.2_s2v_14B_fp8_scaled.safetensors` | `diffusion_models/` | Optional audio-driven talking |
-| `wan_2.1_vae.safetensors` | `vae/` | Optional audio-driven talking |
-| `wav2vec2_large_english_fp16.safetensors` | `audio_encoders/` | Optional audio-driven talking |
+The downloader verifies SHA256 hashes from the model publishers and can be rerun when interrupted. Do **not** use the earlier large FP16 model installation instructions. You already installed ComfyUI-GGUF on your NVIDIA Portable environment.
 
-Download only **the first three** to test video motion. They total many gigabytes; leave ample disk space. Do not download the 14B model unless your GPU and disk space can support it. All model licenses belong to the respective publishers.
-
-### One-click motion model downloader
-
-You can skip manual copying of the first three model files. First launch `Start-RealMotion.bat` once so that the Python `.venv` exists, then double-click **`Install-Wan-Motion-Models.bat`**. Confirm the download of roughly **18 GB** of official model files. The downloader verifies their SHA-256 against the publisher before installing them. Downloading weights is only a one-time step. It does **not** submit images or generate video on a paid service.
+You need Internet for this one-time 10 GB model download, but there is **no paid model inference account or API key**.
 
 ## Step 4 — download the app, double click
 
@@ -86,13 +76,13 @@ The default storyboard already has Moroccan Arabic dialogue. To generate its **s
 powershell -NoProfile -ExecutionPolicy Bypass -File .\windows\setup_voice.ps1
 ```
 
-This downloads the Piper runtime and the `ar_JO-kareem-medium.onnx` Arabic model and config from the original publisher, verifies SHA-256, and saves them under `models/`. On later runs it generates speech **locally**, with no API key. That voice is Jordanian Arabic rather than Moroccan Darija and may pronounce some Darija phrases imperfectly. You can alternatively upload a recorded audio file to each talking scene. If Piper is absent, the program uses Windows SAPI voices available on the computer (quality varies and Arabic might not be installed). Speech-to-video still requires the separate 14B Wan model and an adequate GPU.
+This downloads the Piper runtime and the `ar_JO-kareem-medium.onnx` Arabic model and config from the original publisher, verifies SHA-256, and saves them under `models/`. On later runs it generates speech **locally**, with no API key. That voice is Jordanian Arabic rather than Moroccan Darija and may pronounce some Darija phrases imperfectly. You can alternatively upload a recorded audio file to each talking scene. If Piper is absent, the program uses Windows SAPI voices available on the computer (quality varies and Arabic might not be installed). The first video+voice test does **not** require Wan S2V 14B: the voice is mixed into Wan 5B motion, without lip synchronization.
 
 Voice model: https://huggingface.co/rhasspy/piper-voices/tree/main/ar/ar_JO/kareem/medium
 
 ## Step 6 — upload only your four hero images
 
-Open **http://127.0.0.1:8000** on the Windows machine. Upload the four portraits, use the existing 6 × 5 second 30-second storyboard, optionally edit scenes, and start rendering. If you only installed the lighter Wan 5B, press **«⚡ تجربة 30 ثانية حركة فقط»** first, which converts talking scenes into motion-only scenes; that test intentionally has no lip synchronization. For true speaking shots you must separately install the Wan S2V 14B model files and meet its greater hardware requirements. Your images, dialogue and renders are stored under `local_data/` on your own disk. They are excluded by `.gitignore`, so they are **not uploaded to GitHub**.
+Open **http://127.0.0.1:8000** on the Windows machine. For the first video+audio test **upload only the driver's photo** and press **«🎤🎬 جرّب 5 ثواني بالصورة والصوت»**. This uses the existing driver's dialogue as a synthetic Arabic voice, renders a genuine Wan GGUF motion clip, and combines voice + image as one MP4. Lips are NOT synchronized automatically. After this first test succeeds, upload the other three portraits and generate the full 30-second film. Your images, dialogue and renders are stored under `local_data/` on your own disk. They are excluded by `.gitignore`, so they are **not uploaded to GitHub**.
 
 **Important:** The GitHub Pages link is only the **download portal**. GitHub Pages has no access to your NVIDIA GPU. Opening `127.0.0.1:8000` on your phone opens the phone itself, not your computer. Use the browser on the same Windows PC for the default secure configuration. No public ports, tunnels or external services are enabled.
 
