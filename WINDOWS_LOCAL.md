@@ -56,6 +56,10 @@ Place files in **ComfyUI/ComfyUI/models/** as follows:
 
 Download only **the first three** to test video motion. They total many gigabytes; leave ample disk space. Do not download the 14B model unless your GPU and disk space can support it. All model licenses belong to the respective publishers.
 
+### One-click motion model downloader
+
+You can skip manual copying of the first three model files. First launch `Start-RealMotion.bat` once so that the Python `.venv` exists, then double-click **`Install-Wan-Motion-Models.bat`**. Confirm the download of roughly **18 GB** of official model files. The downloader verifies their SHA-256 against the publisher before installing them. Downloading weights is only a one-time step. It does **not** submit images or generate video on a paid service.
+
 ## Step 4 — download the app, double click
 
 Download the repository ZIP:
@@ -76,7 +80,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\windows\diagnose.ps1
 
 ## Step 5 — optional offline Arabic voice (for photo-only talking scenes)
 
-The default storyboard already has Moroccan Arabic dialogue. To generate its **synthetic voice offline** using free Piper Arabic models, run this once from the project directory **after** starting the launcher at least once:
+The default storyboard already has Moroccan Arabic dialogue. To generate its **synthetic voice offline** using free Piper Arabic models, run **`Install-Offline-Voice.bat`** once (after starting the launcher at least once), or use:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\windows\setup_voice.ps1
@@ -88,7 +92,7 @@ Voice model: https://huggingface.co/rhasspy/piper-voices/tree/main/ar/ar_JO/kare
 
 ## Step 6 — upload only your four hero images
 
-Open **http://127.0.0.1:8000** on the Windows machine. Upload the four portraits, use the existing 6 × 5 second 30-second storyboard, optionally edit scenes, and start rendering. Your images, dialogue and renders are stored under `local_data/` on your own disk. They are excluded by `.gitignore`, so they are **not uploaded to GitHub**.
+Open **http://127.0.0.1:8000** on the Windows machine. Upload the four portraits, use the existing 6 × 5 second 30-second storyboard, optionally edit scenes, and start rendering. If you only installed the lighter Wan 5B, press **«⚡ تجربة 30 ثانية حركة فقط»** first, which converts talking scenes into motion-only scenes; that test intentionally has no lip synchronization. For true speaking shots you must separately install the Wan S2V 14B model files and meet its greater hardware requirements. Your images, dialogue and renders are stored under `local_data/` on your own disk. They are excluded by `.gitignore`, so they are **not uploaded to GitHub**.
 
 **Important:** The GitHub Pages link is only the **download portal**. GitHub Pages has no access to your NVIDIA GPU. Opening `127.0.0.1:8000` on your phone opens the phone itself, not your computer. Use the browser on the same Windows PC for the default secure configuration. No public ports, tunnels or external services are enabled.
 
