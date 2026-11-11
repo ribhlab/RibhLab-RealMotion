@@ -378,3 +378,57 @@ def render_project(project: dict[str, Any], root: Path, update: Any, *, preview:
     output = root / ("preview.mp4" if preview else "final.mp4")
     concatenate_clips(clips, output, workdir)
     return str(output)
+
+
+def render_single_studio_video(
+    image: Path, prompt: str, duration: int, output: Path,
+    update: Any, *, narration: str = ""
+) -> str:
+    """Single-reference Firefly-style local clip. This is image-to-video, not V2V.
+
+    A previously uploaded video supplies its *first frame* as an image seed.
+    Piper/Windows speech is muxed as a soundtrack if narration is non-empty.
+    Lip synchronization is not part of the light GGUF model.
+    """
+    if not 1 <= duration <= 10:
+        raise ValueError("Duration must be between 1 and 10 seconds")
+    if not image.is_file():
+        raise ComfyError("Source image is missing")
+    if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
+        raise ComfyError("FFmpeg/FFprobe is required to export MP4 with audio")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    tag = uuid.uuid4().hex[:12]
+    workdir = output.parent / f"work_{tag}"
+    workdir.mkdir(parents=True, exist_ok=True)
+    width = int(os.getenv("WAN_WIDTH", "288"))
+    height = int(os.getenv("WAN_HEIGHT", "512"))
+    if min(width, height) < 128 or width % 16 or height % 16:
+        raise ValueError("WAN_WIDTH and WAN_HEIGHT must be multiples of 16 and >= 128")
+
+    update("Connecting to local NVIDIA / ComfyUI", 0.05)
+    with ComfyClient(os.getenv("COMFYUI_URL", "http://127.0.0.1:8188")) as comfy:
+        comfy.health()
+        uploaded_name = comfy.upload(image)
+        graph = image_to_video_graph(
+            uploaded_name, prompt, duration, f"realmotion/studio_{tag}",
+            width=width, height=height)
+        update("Generating motion from your reference image", 0.14)
+        job_id = comfy.submit(graph)
+        raw = workdir / "raw.mp4"
+        comfy.wait_and_download(job_id, raw)
+
+    update("Encoding MP4", 0.78)
+    normalized = workdir / "video.mp4"
+    normalize_clip(raw, normalized, duration, resolution="720:1280")
+
+    if narration.strip():
+        update("Creating offline voice narration", 0.87)
+        speech = workdir / "narration.wav"
+        asyncio.run(synthesize_speech(narration.strip(), speech, "ar"))
+        add_speech_to_clip(normalized, speech, output, duration)
+    else:
+        shutil.copyfile(normalized, output)
+    if not output.is_file() or output.stat().st_size < 1024:
+        raise ComfyError("Output MP4 was not produced")
+    update("MP4 is ready", 1.0)
+    return str(output)
