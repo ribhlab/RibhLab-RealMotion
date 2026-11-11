@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#101322" />
 <meta name="description" content="RibhLab RealMotion — حوّل صور الشخصيات إلى فيلم 30 ثانية بالحركة والصوت باستخدام الذكاء الاصطناعي السحابي." />
 <title>RibhLab RealMotion | AI Film Studio</title>
-<link rel="stylesheet" href="cloud.css?v=3" />
+<link rel="stylesheet" href="cloud.css?v=4" />
 </head>
 <body>
 <header class="topbar">
@@ -32,6 +32,7 @@
 <div class="testRow" role="group" aria-label="اختبارات المحرك">
   <button type="button" id="checkTokenBtn">🔌 اختبار اتصال Replicate — مجاني</button>
   <button type="button" id="testClipBtn" disabled>🎬 جرب 5 ثواني بصورة واحدة — مدفوع</button>
+  <a class="freeTrial" href="https://huggingface.co/spaces/cbensimon/wan2-2-fp8da-aoti-preview2" target="_blank" rel="noopener noreferrer">🆓 جرب Wan 2.2 مجاناً (خدمة خارجية)</a>
 </div>
 <div id="progressPanel" class="progressPanel" hidden><div class="progressHeader"><strong id="progressLabel">التحضير...</strong><span id="progressPct">0%</span></div><div class="progressTrack"><div id="progressBar"></div></div><p id="progressDetail" aria-live="polite"></p><button class="cancelBtn" id="stopBtn">إيقاف بعد المشهد الحالي</button></div>
 <section id="results" hidden><h3>🎞️ مشاهد الفيلم</h3><div id="clips" class="clips"></div><div class="finalActions"><button id="mergeBtn" class="makeBtn">🎬 جمع 6 المشاهد ففيديو واحد</button><a id="downloadLink" hidden download>⬇ تحميل الفيلم</a></div><p class="smallNote">التجميع يتم على جهازك داخل المتصفح؛ الفيديو المجمّع يكون WebM عندما لا يدعم المتصفح MP4. مقاطع AI قابلة للتحميل منفردة.</p></section>
