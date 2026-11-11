@@ -25,6 +25,7 @@ function setEngine(online,ready){
   el.className='engine '+(ready?'online':'offline');
   el.textContent=ready?'● محرك AI متصل':online?'● الواجهة خدامة، GPU مازال غير مربوط':'● المحرك السحابي غير متصل';
   $('makeBtn').disabled=!ready || characters.some(c=>!cast[c]) || running;
+  $('testClipBtn').disabled=!ready || !cast.driver || running;
 }
 let cloudReady=false;
 async function checkCloud(){
@@ -80,6 +81,7 @@ async function acceptPhoto(file,key,slot){
     slot.querySelector('.slotAction').textContent='✓ تغيير الصورة';
     const count=characters.filter(x=>cast[x]).length;$('imagesCount').textContent=count+' / 4 صور';
     $('makeBtn').disabled=!cloudReady || count<4 || running;
+    $('testClipBtn').disabled=!cloudReady || !cast.driver || running;
   }catch(error){message('تعذر فتح الصورة. جرّب JPG آخر.','error')}
 }
 function setProgress(done,sub,label,detail){
@@ -109,6 +111,39 @@ async function poll(id,onTick){
   }
   throw new Error('انتهى وقت الانتظار لهذا المشهد. تأكد من رصيد الخدمة وحالة المحرك.');
 }
+
+async function verifyProvider(){
+  if(pin().length<12){message('دخل كود الولوج السري اللي ضبطتيه فـVercel أولا.','warn');return;}
+  const btn=$('checkTokenBtn');btn.disabled=true;
+  try{
+    const r=await fetch(CLOUD_API+'/api/health',{headers:{'x-realmotion-pin':pin()},cache:'no-store'});
+    const data=await r.json().catch(()=>({error:'تعذر قراءة جواب الخدمة'}));
+    if(!r.ok)throw new Error(data.error||'فشل التحقق من المفتاح');
+    message('✅ نجح اختبار Replicate. المفتاح صالح، وما تصرف حتى رصيد GPU. يمكنك تجربة مشهد واحد قبل الفيلم الكامل.','good');
+  }catch(e){message('⚠ '+e.message,'error');}
+  finally{btn.disabled=false;}
+}
+async function testFirstClip(){
+  if(running||!cloudReady||!cast.driver){message('خاص محرك AI يكون متصل وصورة سائق السيارة مرفوعة.','warn');return;}
+  if(pin().length<12){message('دخل كود الولوج الخاص بالمشروع أولاً.','warn');return;}
+  if(!window.confirm('هذا اختبار حقيقي مدفوع: مشهد فيديو واحد من 5 ثواني باستعمال صورة سائق السيارة. قد يستهلك رصيد Replicate. واش موافق؟'))return;
+  running=true;stopped=false;movieClips=[];$('results').hidden=true;
+  $('progressPanel').hidden=false;$('makeBtn').disabled=true;$('testClipBtn').disabled=true;$('checkTokenBtn').disabled=true;
+  try{
+    setProgress(0,.15,'اختبار مشهد واحد (5 ثواني)','بدء التوليد السحابي...');
+    const p=await callApi('/api/start',{type:'motion',image:cast.driver,prompt:scenes[0].prompt});
+    const url=await poll(p.id,s=>setProgress(0,.65,'اختبار 5 ثواني',s));
+    movieClips.push({...scenes[0],url});renderClips();
+    $('progressPct').textContent='100%';$('progressBar').style.width='100%';
+    message('نجح الاختبار! خرج مشهد فيديو حقيقي 5 ثواني، تقدر تشوفو وتحملو تحت. التجميع النهائي خاصو 6 مشاهد.','good');
+  }catch(e){message('فشل اختبار المشهد: '+e.message,'error');}
+  finally{
+    running=false;$('progressPanel').hidden=true;
+    $('makeBtn').disabled=!cloudReady||characters.some(c=>!cast[c]);
+    $('testClipBtn').disabled=!cloudReady||!cast.driver;
+    $('checkTokenBtn').disabled=false;
+  }
+}
 async function teamCollage(){
   const canvas=document.createElement('canvas');canvas.width=576;canvas.height=1024;
   const c=canvas.getContext('2d');
@@ -127,7 +162,7 @@ async function generate(){
   if(running||!cloudReady||characters.some(c=>!cast[c])){message('خاص الصور الأربعة والمحرك يكون جاهز.','warn');return;}
   if(pin().length<12){message('دخل كود الولوج اللي ضبطتيه فـVercel، 12 حرف على الأقل.','warn');$('pin').focus();return;}
   if(!window.confirm('الذكاء الاصطناعي السحابي قد يستهلك رصيداً مدفوعاً لكل مشهد وصوت. واش موافق تبدأ 6 مشاهد (30 ثانية) على رصيد الخدمة المرتبطة؟'))return;
-  running=true;stopped=false;movieClips=[];$('results').hidden=true;$('progressPanel').hidden=false;$('makeBtn').disabled=true;
+  running=true;stopped=false;movieClips=[];$('results').hidden=true;$('progressPanel').hidden=false;$('makeBtn').disabled=true;$('testClipBtn').disabled=true;$('checkTokenBtn').disabled=true;
   $('stopBtn').textContent='إيقاف بعد المشهد الحالي';
   try{
     const composite=await teamCollage();
@@ -151,7 +186,7 @@ async function generate(){
     if(movieClips.length===6){message('نجح توليد المشاهد الستة! تقدر تشوف كل مقطع أو تجمعهم داخل المتصفح ففيديو واحد.','good');}
     else if(stopped){message(`تم الإيقاف. ${movieClips.length} مشاهد جاهزة.`,'warn');}
   }catch(error){message('وقع خطأ: '+error.message,'error');}
-  finally{running=false;$('makeBtn').disabled=!cloudReady||characters.some(c=>!cast[c]);$('progressPanel').hidden=true;}
+  finally{running=false;$('makeBtn').disabled=!cloudReady||characters.some(c=>!cast[c]);$('testClipBtn').disabled=!cloudReady||!cast.driver;$('checkTokenBtn').disabled=false;$('progressPanel').hidden=true;}
 }
 function renderClips(){
   const list=$('clips');list.replaceChildren();$('results').hidden=false;
@@ -220,7 +255,7 @@ function initialize(){
   }
   $('pin').value=sessionStorage.getItem('rml_code')||'';
   $('pin').addEventListener('change',()=>sessionStorage.setItem('rml_code',$('pin').value));
-  $('makeBtn').addEventListener('click',generate);$('mergeBtn').addEventListener('click',compileMovie);$('stopBtn').addEventListener('click',stopAfter);
+  $('makeBtn').addEventListener('click',generate);$('testClipBtn').addEventListener('click',testFirstClip);$('checkTokenBtn').addEventListener('click',verifyProvider);$('mergeBtn').addEventListener('click',compileMovie);$('stopBtn').addEventListener('click',stopAfter);
   checkCloud();
 }
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',initialize);else initialize();
