@@ -1,7 +1,7 @@
 'use strict';
 // GitHub Pages is a static host. Production Vercel serves the same UI and /api endpoints.
 // Set this for the GitHub Pages mirror after Vercel deployment, without putting secrets here.
-const CLOUD_API = window.REALMOTION_API_BASE || '';
+const CLOUD_API = window.REALMOTION_API_BASE || (location.hostname.endsWith('github.io') ? 'https://ribhlab-realmotion.vercel.app' : '');
 const $ = id => document.getElementById(id);
 const cast = Object.create(null);
 const characters = ['driver','unicorn','spider','bat'];
