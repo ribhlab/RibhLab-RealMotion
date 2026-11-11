@@ -204,17 +204,78 @@ def concatenate_clips(clips: list[Path], target: Path, workdir: Path) -> None:
                    check=True, capture_output=True, text=True, timeout=180)
 
 
-async def synthesize_speech(text: str, target: Path, voice: str) -> None:
-    """Optional free online TTS; only selected when the user chooses auto-voice.
-
-    edge-tts is an unofficial client, requires outbound internet and is not guaranteed.
-    """
+def _local_piper_voice(text: str, target: Path) -> bool:
+    """Generate speech entirely offline when a Piper voice is installed."""
+    import sys
+    voice = Path(os.getenv("PIPER_MODEL_PATH", str(Path(__file__).resolve().parent / "models" / "ar_JO-kareem-medium.onnx")))
+    cli = shutil.which("piper")
+    if not cli and sys.platform == "win32":
+        local = Path(sys.executable).parent / "piper.exe"
+        if local.is_file():
+            cli = str(local)
+    if not voice.is_file() or not cli:
+        return False
+    config = Path(str(voice) + ".json")
+    if not config.is_file():
+        raise ComfyError(f"Missing Piper voice config: {config}")
     try:
-        import edge_tts
-    except ImportError as exc:
-        raise ComfyError('Install the optional speech dependency: pip install edge-tts') from exc
-    await edge_tts.Communicate(text=text, voice=voice).save(str(target))
+        subprocess.run([cli, "--model", str(voice), "--output_file", str(target)],
+                       input=text, capture_output=True, text=True, encoding="utf-8",
+                       check=True, timeout=120)
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        raise ComfyError(f"Offline Piper synthesis failed: {str(exc)[:350]}") from exc
+    if not target.is_file() or target.stat().st_size < 200:
+        raise ComfyError("Piper did not create an audio file")
+    return True
 
+
+def _windows_sapi_voice(text: str, target: Path) -> bool:
+    """Fallback to the installed Windows SAPI voices, with no cloud requests.
+
+    Quality and Arabic-language support depend on voices installed in Windows.
+    """
+    import base64
+    import sys
+    if sys.platform != "win32":
+        return False
+    script = (
+        "Add-Type -AssemblyName System.Speech; "
+        "$s = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
+        "$ar = @($s.GetInstalledVoices() | Where-Object { "
+        "$_.VoiceInfo.Culture.Name -like 'ar-*' }); "
+        "if ($ar.Count -gt 0) { $s.SelectVoice($ar[0].VoiceInfo.Name) }; "
+        "$s.SetOutputToWaveFile('" + str(target).replace("'", "''") + "'); "
+        "$s.Speak([System.IO.File]::ReadAllText('" +
+        str(target.with_suffix('.txt')).replace("'", "''") + "', [System.Text.Encoding]::UTF8)); "
+        "$s.Dispose();"
+    )
+    txt = target.with_suffix('.txt')
+    txt.write_text(text, encoding="utf-8")
+    try:
+        encoded = base64.b64encode(script.encode("utf-16le")).decode("ascii")
+        subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive",
+                        "-EncodedCommand", encoded], capture_output=True,
+                       check=True, timeout=90)
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        raise ComfyError("Windows offline speech failed. Install Piper Arabic voice or upload a recording.") from exc
+    finally:
+        txt.unlink(missing_ok=True)
+    return target.is_file() and target.stat().st_size > 200
+
+
+async def synthesize_speech(text: str, target: Path, voice: str) -> None:
+    """Offline-only default: Piper Arabic voice, then Windows SAPI fallback.
+
+    Never contacts any online speech API. No imitation of real children's voices.
+    """
+    if _local_piper_voice(text, target):
+        return
+    if _windows_sapi_voice(text, target):
+        return
+    raise ComfyError(
+        "Offline Arabic voice is missing. Run windows/setup_voice.ps1 once, "
+        "or upload your own WAV/MP3 audio for the speaking shot."
+    )
 
 def prepare_audio(src: Path, target: Path, seconds: int) -> None:
     subprocess.run(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', '-i', str(src),
@@ -252,7 +313,7 @@ def render_project(project: dict[str, Any], root: Path, update: Any) -> str:
                 if scene.get('audio_file'):
                     audio = root / 'audio' / scene['audio_file']
                 elif scene.get('dialogue'):
-                    audio = workdir / f'speech-{index}.mp3'
+                    audio = workdir / f'speech-{index}.wav'
                     update(f'Generating voice for shot {index + 1}', index / len(scenes))
                     asyncio.run(synthesize_speech(scene['dialogue'], audio, scene.get('voice', 'ar-MA-JamalNeural')))
                 else:
