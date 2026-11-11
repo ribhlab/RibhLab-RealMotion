@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#101322" />
 <meta name="description" content="RibhLab RealMotion — حوّل صور الشخصيات إلى فيلم 30 ثانية بالحركة والصوت باستخدام الذكاء الاصطناعي السحابي." />
 <title>RibhLab RealMotion | AI Film Studio</title>
-<link rel="stylesheet" href="cloud.css?v=2" />
+<link rel="stylesheet" href="cloud.css?v=3" />
 </head>
 <body>
 <header class="topbar">
@@ -29,11 +29,15 @@
 <section class="studio lastStudio"><div class="sectionTitle"><div><span class="kicker">03 — RENDER YOUR MOVIE</span><h2>حوّل الصور لفيديو</h2><p>GPU سحابي. النتيجة كتوصلك من داخل المتصفح.</p></div></div>
 <div id="notice" class="notice info"><strong>حالة الخدمة</strong><p id="noticeText">كنتحقق من اتصال محرك الفيديو...</p></div>
 <div class="actionRow"><div class="access"><label for="pin">كود الولوج الخاص بمالك التطبيق</label><input id="pin" type="password" autocomplete="off" placeholder="كود سري مضبوط مرة واحدة فالخادم" minlength="12"/><small>خاص غير باش نحمي رصيد AI. ماشي مفتاح API وما كيتخزنش فـGitHub.</small></div><button id="makeBtn" class="makeBtn" disabled><span>✦ أنتج الفيلم ديالي (30s)</span><small>المعالجة السحابية تستهلك رصيد GPU</small></button></div>
+<div class="testRow" role="group" aria-label="اختبارات المحرك">
+  <button type="button" id="checkTokenBtn">🔌 اختبار اتصال Replicate — مجاني</button>
+  <button type="button" id="testClipBtn" disabled>🎬 جرب 5 ثواني بصورة واحدة — مدفوع</button>
+</div>
 <div id="progressPanel" class="progressPanel" hidden><div class="progressHeader"><strong id="progressLabel">التحضير...</strong><span id="progressPct">0%</span></div><div class="progressTrack"><div id="progressBar"></div></div><p id="progressDetail" aria-live="polite"></p><button class="cancelBtn" id="stopBtn">إيقاف بعد المشهد الحالي</button></div>
 <section id="results" hidden><h3>🎞️ مشاهد الفيلم</h3><div id="clips" class="clips"></div><div class="finalActions"><button id="mergeBtn" class="makeBtn">🎬 جمع 6 المشاهد ففيديو واحد</button><a id="downloadLink" hidden download>⬇ تحميل الفيلم</a></div><p class="smallNote">التجميع يتم على جهازك داخل المتصفح؛ الفيديو المجمّع يكون WebM عندما لا يدعم المتصفح MP4. مقاطع AI قابلة للتحميل منفردة.</p></section>
 </section>
 </main>
 <footer><span>© 2026 RibhLab RealMotion · Built on GitHub</span><span>صور الأطفال تبقى فالمتصفح إلى أن تختار التوليد، ومن بعد كتترسل لمزود AI السحابي. ما كتتنشرش فالمستودع.</span></footer>
-<script src="cloud.js?v=2" defer></script>
+<script src="cloud.js?v=3" defer></script>
 </body>
 </html>
