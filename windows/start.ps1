@@ -66,7 +66,7 @@ if ($comfyRoot) {
   $env:REALMOTION_COMFYUI_MODELS_DIR = Join-Path $comfyRoot 'ComfyUI\models'
   Write-Host "ComfyUI: $comfyRoot" -ForegroundColor Cyan
   foreach ($spec in @(
-     'diffusion_models\wan2.2_ti2v_5B_fp16.safetensors',
+     'unet\Wan2.2-TI2V-5B-Q2_K.gguf',
      'vae\wan2.2_vae.safetensors',
      'text_encoders\umt5_xxl_fp8_e4m3fn_scaled.safetensors'
   )) {
