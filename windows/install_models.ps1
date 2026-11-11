@@ -1,4 +1,4 @@
-# One-time local model installer for Wan 2.2 5B image-to-video.
+# One-time local model installer for Wan 2.2 5B Q2 GGUF image-to-video.
 # Official files only; NO paid GPU service, no keys, no upload of personal photos.
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
@@ -29,11 +29,11 @@ $freeGB = [math]::Round((Get-PSDrive -Name $drive.Substring(0,1)).Free/1GB,1)
 Write-Host "ComfyUI models: $modelRoot"
 Write-Host "Free disk space: $freeGB GB"
 if ($freeGB -lt 20) {
-  Write-Warning '20 GB or more free disk space is recommended for downloading Wan 2.2 5B weights.'
+  Write-Warning '20 GB or more free disk space is recommended for downloading Wan 2.2 Q2 GGUF weights.'
   $override = Read-Host 'Continue despite limited free space? Type YES to proceed'
   if ($override -ne 'YES') { exit 1 }
 }
-Write-Host 'One-time download: about 17 GB from the official Hugging Face model repositories.'
+Write-Host 'One-time download: about 10 GB from the official Hugging Face model repositories.'
 Write-Host 'After download, generation uses your own GPU with no paid API.'
 $consent = Read-Host 'Download now? Type YES to continue'
 if ($consent -ne 'YES') { Write-Host 'Cancelled. No models downloaded.'; exit 0 }
