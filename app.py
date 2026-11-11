@@ -277,3 +277,144 @@ def get_video(project_id: str):
     if not video.is_file():
         raise HTTPException(404, 'Video is not ready')
     return FileResponse(video, media_type='video/mp4', filename='RealMotion-Heroes-30s.mp4')
+
+
+# ---------------------------------------------------------------------------
+# Simple creative studio API: a reference image/video + a prompt at the bottom.
+# Video upload is intentionally treated as a FIRST-FRAME reference; this Wan
+# 5B GGUF setup is not a video-to-video editing model.
+# ---------------------------------------------------------------------------
+STUDIO_ASSET_LIMIT = 100 * 1024 * 1024
+STUDIO_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
+STUDIO_VIDEO_EXTENSIONS = {".mp4", ".webm", ".mov", ".m4v"}
+
+
+class StudioRequest(BaseModel):
+    asset_id: uuid.UUID
+    prompt: str = Field(min_length=8, max_length=1800)
+    seconds: int = Field(default=5, ge=1, le=10)
+    with_voice: bool = True
+
+
+def _studio_folder(asset_id: uuid.UUID) -> Path:
+    return DATA / "studio_assets" / str(asset_id)
+
+
+@app.post('/api/studio/assets', status_code=201)
+async def studio_upload(file: UploadFile = File(...)):
+    import subprocess
+    name = Path(file.filename or "").name
+    extension = Path(name).suffix.lower()
+    if extension not in STUDIO_IMAGE_EXTENSIONS | STUDIO_VIDEO_EXTENSIONS:
+        raise HTTPException(415, 'Only JPG, PNG, WEBP, MP4, WEBM, MOV, M4V are supported')
+    data = await file.read(STUDIO_ASSET_LIMIT + 1)
+    if not data or len(data) > STUDIO_ASSET_LIMIT:
+        raise HTTPException(413, "File is empty or over 100 MB")
+    asset_id = uuid.uuid4()
+    folder = _studio_folder(asset_id)
+    folder.mkdir(parents=True, exist_ok=False)
+    reference = folder / 'reference.jpg'
+    kind = 'image' if extension in STUDIO_IMAGE_EXTENSIONS else 'video'
+    try:
+        if kind == 'image':
+            from io import BytesIO
+            with Image.open(BytesIO(data)) as img:
+                img.verify()
+            with Image.open(BytesIO(data)) as img:
+                if img.width * img.height > 30_000_000:
+                    raise HTTPException(413, "Image exceeds 30 megapixels")
+                img.convert('RGB').save(reference, 'JPEG', quality=94)
+        else:
+            source = folder / ('source' + extension)
+            source.write_bytes(data)
+            # Extract only the first frame: a valid I2V reference, NOT video editing.
+            completed = subprocess.run(
+                ['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y',
+                 '-i', str(source), '-frames:v', '1', str(reference)],
+                capture_output=True, timeout=40, check=False)
+            if completed.returncode != 0 or not reference.is_file():
+                raise HTTPException(415, 'Cannot read video frames from this file')
+            with Image.open(reference) as img:
+                if img.width * img.height > 30_000_000:
+                    raise HTTPException(413, "Video frame is too large")
+        (folder / 'meta.json').write_text(
+            json.dumps({'name': name, 'kind': kind}, ensure_ascii=False),
+            encoding='utf-8')
+    except HTTPException:
+        import shutil
+        shutil.rmtree(folder, ignore_errors=True)
+        raise
+    except (OSError, UnidentifiedImageError, subprocess.TimeoutExpired) as exc:
+        import shutil
+        shutil.rmtree(folder, ignore_errors=True)
+        raise HTTPException(415, f'Cannot read source media: {str(exc)[:180]}') from exc
+
+    return {'id': str(asset_id), 'name': name, 'kind': kind,
+            'reference_mode': 'first_frame' if kind == 'video' else 'image',
+            'preview_url': f'/api/studio/assets/{asset_id}/preview'}
+
+
+@app.get('/api/studio/assets/{asset_id}/preview')
+def studio_reference_preview(asset_id: uuid.UUID):
+    reference = _studio_folder(asset_id) / 'reference.jpg'
+    if not reference.is_file():
+        raise HTTPException(404, 'Reference was not found')
+    return FileResponse(reference, media_type='image/jpeg')
+
+
+def _studio_worker(job_id: str, asset_id: uuid.UUID,
+                   prompt: str, seconds: int, narration: str):
+    import re
+    from studio import render_single_studio_video
+    folder = _studio_folder(asset_id)
+    with _lock:
+        _jobs[job_id].update(status='running', message='Connecting to ComfyUI')
+    try:
+        out_dir = DATA / 'studio_results' / job_id
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        def update(message, fraction):
+            with _lock:
+                _jobs[job_id].update(message=message, progress=round(100*fraction, 1))
+
+        # Accept optional spoken phrase in the SAME prompt input.
+        # Example: A person waves. الكلام: السلام عليكم
+        speech = re.search(r'(?:الكلام|الحوار|يقول|تقول)\\s*[:：]\\s*(.+)', prompt,
+                           flags=re.IGNORECASE | re.DOTALL)
+        video_prompt = prompt[:speech.start()].strip() if speech and prompt[:speech.start()].strip() else prompt
+        voiced_text = (speech.group(1).strip() if speech else narration) if narration else ''
+        render_single_studio_video(
+            folder / 'reference.jpg', video_prompt, seconds,
+            out_dir / 'result.mp4', update, narration=voiced_text)
+        with _lock:
+            _jobs[job_id].update(status='done', progress=100, message='Your MP4 is ready',
+                                 video_url=f'/api/studio/jobs/{job_id}/video')
+    except Exception as exc:
+        with _lock:
+            _jobs[job_id].update(status='failed', message=str(exc)[:1500])
+
+
+@app.post('/api/studio/generate', status_code=202)
+def studio_generate(body: StudioRequest):
+    asset = _studio_folder(body.asset_id)
+    if not (asset / 'reference.jpg').is_file():
+        raise HTTPException(404, "Upload a photo or video first")
+    with _lock:
+        if any(j['status'] in ('queued', 'running') for j in _jobs.values()):
+            raise HTTPException(409, 'Another generation is still running')
+        job_id = str(uuid.uuid4())
+        _jobs[job_id] = {
+            'id': job_id, 'status': 'queued', 'progress': 0,
+            'message': 'Queued on local GPU', 'mode': 'studio'}
+        executor.submit(_studio_worker, job_id, body.asset_id, body.prompt.strip(),
+                        body.seconds, body.prompt.strip() if body.with_voice else '')
+        return _jobs[job_id].copy()
+
+
+@app.get('/api/studio/jobs/{job_id}/video')
+def studio_generated_video(job_id: uuid.UUID):
+    video = DATA / 'studio_results' / str(job_id) / 'result.mp4'
+    if not video.is_file():
+        raise HTTPException(404, "Generated video not ready")
+    return FileResponse(video, media_type='video/mp4',
+                        filename='RibhLab-RealMotion.mp4')
