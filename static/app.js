@@ -18,6 +18,23 @@ function updateDuration(){const total=project.scenes.reduce((a,s)=>a+s.seconds,0
 async function save(){try{project=await request(`/api/projects/${project.id}/storyboard`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({scenes:project.scenes})});log('تم حفظ السيناريو بنجاح.');return true}catch(e){log('خطأ: '+e.message);return false}}
 async function check(){try{const h=await request('/api/health');$('connectivity').textContent=h.comfyui==='connected'?'ComfyUI متصل · GPU':'ComfyUI غير متصل';$('led').classList.toggle('ok',h.comfyui==='connected')}catch(e){$('connectivity').textContent='السيرفر غير متصل'}}
 async function poll(id){try{const job=await request('/api/jobs/'+id);$('bar').style.width=job.progress+'%';log(job.message);if(job.status==='done'){clearInterval(polling);$('render').disabled=false;$('result').style.display='block';$('player').src=job.video_url;$('download').href=job.video_url}else if(job.status==='failed'){clearInterval(polling);$('render').disabled=false;log('فشل الرندر: '+job.message)}}catch(e){log('خطأ في تتبع الرندر: '+e.message)}}
+function motionOnly(){
+  if(!project)return;
+  const notes={
+    driver:'Cinematic live-action, same child in navy suit driving a bright yellow fantasy sports car on a closed, child-safe amusement park racetrack, wheels visibly turning and camera tracking smoothly. Keep the face recognizable, believable body motion, consistent outfit and lighting.',
+    unicorn:'Cinematic fantasy, same young unicorn princess drives a pastel pink miniature kart around a magical garden racetrack, smiles, waves, laughs, natural motion and tracking camera, preserve facial identity.',
+    spider:'Cinematic live-action, same young child in red-blue spider-inspired hero outfit races a red toy sports kart around a safe theme park track, steering and laughing, fluid natural movement and stable face.',
+    batman:'Cinematic live-action, same child in black bat-inspired hero suit drives a child-size black futuristic bat kart around a neon fairground racetrack, graceful turns, moving lights and naturally smiling, preserve identity.'
+  };
+  for(const s of project.scenes){
+    if(s.mode==='talk'){
+      s.mode='move';s.audio_file=null;s.dialogue='';
+      s.prompt=notes[s.character]||notes.driver;
+    }
+  }
+  refreshScenes();
+  log('تبدلات مشاهد الكلام لحركة حقيقية باستعمال موديل Wan 5B. تقدر تولّد 30 ثانية بلا S2V 14B. هاد الوضع ما فيهش تحريك شفاه ولا صوت كلام.');
+}
 async function render(){if(!await save())return;try{$('result').style.display='none';const job=await request(`/api/projects/${project.id}/render`,{method:'POST'});$('render').disabled=true;log('بدا الرندر الحقيقي، كيتطلب GPU...');$('bar').style.width='0%';if(polling)clearInterval(polling);polling=setInterval(()=>poll(job.id),3000);poll(job.id)}catch(e){log('تعذّر البدء: '+e.message)}}
-async function init(){try{const stored=localStorage.getItem('realm_project_id');if(stored){try{project=await request('/api/projects/'+stored)}catch{localStorage.removeItem('realm_project_id')}}if(!project)project=await request('/api/projects',{method:'POST'});localStorage.setItem('realm_project_id',project.id);refreshCast();refreshScenes();$('save').addEventListener('click',save);$('render').addEventListener('click',render);check();setInterval(check,15000)}catch(e){log('تعذر فتح المشروع: '+e.message)}}
+async function init(){try{const stored=localStorage.getItem('realm_project_id');if(stored){try{project=await request('/api/projects/'+stored)}catch{localStorage.removeItem('realm_project_id')}}if(!project)project=await request('/api/projects',{method:'POST'});localStorage.setItem('realm_project_id',project.id);refreshCast();refreshScenes();$('save').addEventListener('click',save);$('render').addEventListener('click',render);$('motionOnly').addEventListener('click',motionOnly);check();setInterval(check,15000)}catch(e){log('تعذر فتح المشروع: '+e.message)}}
 init();
