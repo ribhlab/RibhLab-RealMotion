@@ -40,8 +40,11 @@ def image_to_video_graph(image_name: str, prompt: str, seconds: int, filename_pr
         raise ValueError("Each AI shot must be between 1 and 15 seconds")
     seed = seed if seed is not None else int.from_bytes(os.urandom(4), 'big')
     length = seconds * FPS + 1
+    filename = os.getenv("WAN_I2V_MODEL", "Wan2.2-TI2V-5B-Q2_K.gguf")
+    loader = (node("UnetLoaderGGUF", unet_name=filename) if filename.lower().endswith(".gguf")
+              else node("UNETLoader", unet_name=filename, weight_dtype="default"))
     return {
-        "1": node("UNETLoader", unet_name=os.getenv("WAN_I2V_MODEL", "wan2.2_ti2v_5B_fp16.safetensors"), weight_dtype="default"),
+        "1": loader,
         "2": node("CLIPLoader", clip_name=os.getenv("WAN_TEXT_ENCODER", "umt5_xxl_fp8_e4m3fn_scaled.safetensors"), type="wan", device="default"),
         "3": node("VAELoader", vae_name=os.getenv("WAN_I2V_VAE", "wan2.2_vae.safetensors")),
         "4": node("LoadImage", image=image_name),
@@ -194,6 +197,23 @@ def normalize_clip(source: Path, target: Path, seconds: int, resolution: str = '
     subprocess.run(args, check=True, capture_output=True, text=True, timeout=180)
 
 
+def add_speech_to_clip(video: Path, speech: Path, output: Path, seconds: int) -> None:
+    """Mux offline speech into a real AI video with one AAC audio track.
+
+    This adds a voice soundtrack; it does NOT perform lip synchronization.
+    """
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+         "-i", str(video), "-i", str(speech),
+         "-map", "0:v:0", "-map", "1:a:0",
+         "-c:v", "copy", "-c:a", "aac", "-b:a", "160k",
+         "-ar", "44100", "-ac", "2",
+         "-af", "apad", "-t", str(seconds), "-movflags", "+faststart",
+         str(output)],
+        check=True, capture_output=True, text=True, timeout=180
+    )
+
+
 def concatenate_clips(clips: list[Path], target: Path, workdir: Path) -> None:
     if not clips:
         raise ValueError('No clips to concatenate')
@@ -283,58 +303,78 @@ def prepare_audio(src: Path, target: Path, seconds: int) -> None:
                    capture_output=True, check=True, timeout=120)
 
 
-def render_project(project: dict[str, Any], root: Path, update: Any) -> str:
-    """Blocking render worker. Explicit failure if GPU or models are not available."""
-    if not shutil.which('ffmpeg') or not shutil.which('ffprobe'):
-        raise ComfyError('ffmpeg and ffprobe must be installed on the host')
-    scenes = project['scenes']
-    if sum(s['seconds'] for s in scenes) != 30:
-        raise ValueError('Storyboard must add up to exactly 30 seconds')
-    workdir = root / 'render'
+def render_project(project: dict[str, Any], root: Path, update: Any, *, preview: bool = False) -> str:
+    """Render Wan 5B GGUF motion and local Arabic speech into one MP4.
+
+    For a GTX 1660 SUPER 6 GB, the first proof-of-concept is one 5s talking
+    scene with a local voice soundtrack. True phoneme-to-lip sync is NOT part
+    of this lightweight workflow and remains a separate GPU-intensive feature.
+    """
+    if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
+        raise ComfyError("ffmpeg and ffprobe must be installed on the host")
+    all_scenes = project["scenes"]
+    if sum(s["seconds"] for s in all_scenes) != 30:
+        raise ValueError("Storyboard must add up to exactly 30 seconds")
+    if preview:
+        chosen = next((s for s in all_scenes
+                       if s["mode"] == "talk" and s["character"] in project["characters"]), None)
+        if chosen is None:
+            raise ComfyError("For the audio+video test, upload the driver's picture first")
+        scenes = [chosen]
+    else:
+        scenes = all_scenes
+    workdir = root / ("preview_render" if preview else "render")
     workdir.mkdir(parents=True, exist_ok=True)
-    output_clips: list[Path] = []
-    url = os.environ.get('COMFYUI_URL', 'http://127.0.0.1:8188')
+    clips: list[Path] = []
+    url = os.environ.get("COMFYUI_URL", "http://127.0.0.1:8188")
+    # Lower native resolution reduces temporary VRAM use; this is a first test,
+    # not an assurance that the 5B model fits 6 GB under all configurations.
+    width = int(os.getenv("WAN_WIDTH", "288"))
+    height = int(os.getenv("WAN_HEIGHT", "512"))
+    if width < 128 or height < 128 or width % 16 or height % 16:
+        raise ValueError("WAN_WIDTH and WAN_HEIGHT must be >=128 and multiples of 16")
     with ComfyClient(url) as comfy:
         try:
             comfy.health()
         except (httpx.HTTPError, ValueError) as exc:
-            raise ComfyError(f'Cannot reach local ComfyUI at {url}: {exc}') from exc
+            raise ComfyError(f"Cannot reach local ComfyUI at {url}: {exc}") from exc
         for index, scene in enumerate(scenes):
-            key = scene['character']
-            picture = project['characters'].get(key)
-            if not picture:
-                raise ComfyError(f'Missing picture for character: {key}')
-            if '/' in picture or '\\' in picture:
-                raise ComfyError('Invalid image file name')
-            update(f'Preparing shot {index + 1}/{len(scenes)}', index / len(scenes))
-            image_name = comfy.upload(root / 'images' / picture)
-            audio: Path | None = None
-            if scene['mode'] == 'talk':
-                if scene.get('audio_file'):
-                    audio = root / 'audio' / scene['audio_file']
-                elif scene.get('dialogue'):
-                    audio = workdir / f'speech-{index}.wav'
-                    update(f'Generating voice for shot {index + 1}', index / len(scenes))
-                    asyncio.run(synthesize_speech(scene['dialogue'], audio, scene.get('voice', 'ar-MA-JamalNeural')))
+            key = scene["character"]
+            picture = project["characters"].get(key)
+            if not picture or "/" in picture or "\\" in picture:
+                raise ComfyError(f"Missing or unsafe image filename for {key}")
+            update(f"Preparing AI shot {index + 1}/{len(scenes)}", index / len(scenes))
+            image_name = comfy.upload(root / "images" / picture)
+            graph = image_to_video_graph(
+                image_name, scene["prompt"], scene["seconds"],
+                f"realmotion/{'preview_' if preview else ''}shot_{index:02d}",
+                width=width, height=height)
+            update(f"Generating real motion {index + 1}/{len(scenes)}", (index + .1) / len(scenes))
+            job = comfy.submit(graph)
+            raw = workdir / f"shot-{index}-raw.mp4"
+            comfy.wait_and_download(job, raw)
+            silent = workdir / f"shot-{index}-base.mp4"
+            normalize_clip(raw, silent, scene["seconds"])
+            final = workdir / f"shot-{index}.mp4"
+            if scene["mode"] == "talk":
+                if scene.get("audio_file"):
+                    audio = root / "audio" / scene["audio_file"]
+                elif scene.get("dialogue"):
+                    audio = workdir / f"speech-{index}.wav"
+                    update(f"Synthesizing offline Arabic voice {index + 1}/{len(scenes)}",
+                           (index + .7) / len(scenes))
+                    asyncio.run(synthesize_speech(
+                        scene["dialogue"], audio, scene.get("voice", "")))
                 else:
-                    raise ComfyError('Talking scene requires dialogue or audio')
-                padded = workdir / f'voice-{index}.wav'
-                prepare_audio(audio, padded, scene['seconds'])
-                audio_name = comfy.upload(padded)
-                graph = speech_to_video_graph(image_name, audio_name, scene['prompt'], scene['seconds'],
-                                              f'realmotion/shot_{index:02d}')
+                    raise ComfyError("A speaking scene needs dialogue or an uploaded recording")
+                if not audio.is_file():
+                    raise ComfyError("Speech audio file missing after local synthesis")
+                add_speech_to_clip(silent, audio, final, scene["seconds"])
             else:
-                graph = image_to_video_graph(image_name, scene['prompt'], scene['seconds'],
-                                             f'realmotion/shot_{index:02d}')
-            update(f'AI rendering shot {index + 1}/{len(scenes)}', (index + .15) / len(scenes))
-            prompt_id = comfy.submit(graph)
-            raw = workdir / f'shot-{index}-raw.mp4'
-            comfy.wait_and_download(prompt_id, raw)
-            clip = workdir / f'shot-{index}.mp4'
-            normalize_clip(raw, clip, scene['seconds'])
-            output_clips.append(clip)
-            update(f'Finished shot {index + 1}/{len(scenes)}', (index + 1) / len(scenes))
-    update('Assembling final MP4', .99)
-    result = root / 'final.mp4'
-    concatenate_clips(output_clips, result, workdir)
-    return str(result)
+                shutil.copyfile(silent, final)
+            clips.append(final)
+            update(f"Completed shot {index + 1}/{len(scenes)}", (index + 1) / len(scenes))
+    update("Combining video and audio", .99)
+    output = root / ("preview.mp4" if preview else "final.mp4")
+    concatenate_clips(clips, output, workdir)
+    return str(output)
