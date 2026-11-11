@@ -17,7 +17,7 @@ function toggleMode(){talkControls.style.display=scene.mode==='talk'?'grid':'non
 function updateDuration(){const total=project.scenes.reduce((a,s)=>a+s.seconds,0);$('duration').textContent=total+' / 30 ثانية';$('duration').style.color=total===30?'var(--teal)':'#ff9898'}
 async function save(){try{project=await request(`/api/projects/${project.id}/storyboard`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({scenes:project.scenes})});log('تم حفظ السيناريو بنجاح.');return true}catch(e){log('خطأ: '+e.message);return false}}
 async function check(){try{const h=await request('/api/health');$('connectivity').textContent=h.comfyui==='connected'?'ComfyUI متصل · GPU':'ComfyUI غير متصل';$('led').classList.toggle('ok',h.comfyui==='connected')}catch(e){$('connectivity').textContent='السيرفر غير متصل'}}
-async function poll(id){try{const job=await request('/api/jobs/'+id);$('bar').style.width=job.progress+'%';log(job.message);if(job.status==='done'){clearInterval(polling);$('render').disabled=false;$('result').style.display='block';$('player').src=job.video_url;$('download').href=job.video_url}else if(job.status==='failed'){clearInterval(polling);$('render').disabled=false;log('فشل الرندر: '+job.message)}}catch(e){log('خطأ في تتبع الرندر: '+e.message)}}
+async function poll(id){try{const job=await request('/api/jobs/'+id);$('bar').style.width=job.progress+'%';log(job.message);if(job.status==='done'){clearInterval(polling);$('render').disabled=false;$('previewAV').disabled=false;$('result').style.display='block';$('player').src=job.video_url;$('download').href=job.video_url}else if(job.status==='failed'){clearInterval(polling);$('render').disabled=false;$('previewAV').disabled=false;log('فشل الرندر: '+job.message)}}catch(e){log('خطأ في تتبع الرندر: '+e.message)}}
 function motionOnly(){
   if(!project)return;
   const notes={
@@ -35,6 +35,19 @@ function motionOnly(){
   refreshScenes();
   log('تبدلات مشاهد الكلام لحركة حقيقية باستعمال موديل Wan 5B. تقدر تولّد 30 ثانية بلا S2V 14B. هاد الوضع ما فيهش تحريك شفاه ولا صوت كلام.');
 }
+async function previewAV(){
+  if(!await save())return;
+  try{
+    $('result').style.display='none';
+    const job=await request(`/api/projects/${project.id}/preview`,{method:'POST'});
+    $('render').disabled=true;$('previewAV').disabled=true;
+    log('كنوجد أول فيديو بالحركة والحوار المحلي. الأول خاص صورة السائق وموديلات Wan GGUF وصوت Piper أو Windows.');
+    $('bar').style.width='0%';
+    if(polling)clearInterval(polling);
+    polling=setInterval(()=>poll(job.id),3000);
+    poll(job.id);
+  }catch(e){log('تعذرت التجربة بالصوت والصورة: '+e.message)}
+}
 async function render(){if(!await save())return;try{$('result').style.display='none';const job=await request(`/api/projects/${project.id}/render`,{method:'POST'});$('render').disabled=true;log('بدا الرندر الحقيقي، كيتطلب GPU...');$('bar').style.width='0%';if(polling)clearInterval(polling);polling=setInterval(()=>poll(job.id),3000);poll(job.id)}catch(e){log('تعذّر البدء: '+e.message)}}
-async function init(){try{const stored=localStorage.getItem('realm_project_id');if(stored){try{project=await request('/api/projects/'+stored)}catch{localStorage.removeItem('realm_project_id')}}if(!project)project=await request('/api/projects',{method:'POST'});localStorage.setItem('realm_project_id',project.id);refreshCast();refreshScenes();$('save').addEventListener('click',save);$('render').addEventListener('click',render);$('motionOnly').addEventListener('click',motionOnly);check();setInterval(check,15000)}catch(e){log('تعذر فتح المشروع: '+e.message)}}
+async function init(){try{const stored=localStorage.getItem('realm_project_id');if(stored){try{project=await request('/api/projects/'+stored)}catch{localStorage.removeItem('realm_project_id')}}if(!project)project=await request('/api/projects',{method:'POST'});localStorage.setItem('realm_project_id',project.id);refreshCast();refreshScenes();$('save').addEventListener('click',save);$('previewAV').addEventListener('click',previewAV);$('render').addEventListener('click',render);$('motionOnly').addEventListener('click',motionOnly);check();setInterval(check,15000)}catch(e){log('تعذر فتح المشروع: '+e.message)}}
 init();
