@@ -6,6 +6,22 @@ RealMotion is **not** a slideshow maker. Every shot is submitted to actual video
 
 > **Status: development MVP (v0.1).** The UI, upload and storyboard API, native Wan 2.2 graph builders, ComfyUI queueing/download, optional voice generation, MP4 assembly and unit tests are implemented. The complete AI rendering pipeline has **not been executed end-to-end on a model-loaded GPU** in this environment. Face identity, accurate Darija lip-sync and prompt adherence depend on model quality and are **not guaranteed**. We deliberately do not claim otherwise.
 
+## ☁️ Cloud Web App — only upload four photos
+
+**GitHub Pages** is the public UI. A connected **Vercel Node serverless API** can securely call **Replicate** for AI video motion, Arabic speech synthesis and audio-driven lip-sync. End users only upload 4 photos, enter an owner access code and press Generate; a default 6×5-second movie is preconfigured. **A GPU provider account and credit are still required**: GitHub Pages and GitHub Actions do not provide video-generation GPUs.
+
+- **Static frontend:** root `index.html`, `cloud.css`, `cloud.js` (runs from GitHub Pages or Vercel). This does not need Windows, ComfyUI, Python or local NVIDIA.
+- **Secure cloud endpoints:** `api/config.js`, `api/start.js`, `api/status.js`, `api/media.js`. Server token is kept as a server-side environment secret, never in `cloud.js`.
+- **One-time owner setup:** connect this repo to a Vercel project and configure encrypted environment variables `REPLICATE_API_TOKEN` and `REALMOTION_ACCESS_PIN` (at least 12 characters). Deploy after saving. The public site shows **not connected** until both are set. Do **not** paste these secrets into GitHub or chat.
+- **If using the GitHub Pages mirror:** point `window.REALMOTION_API_BASE` to your deployed Vercel app in `cloud.js` or a small inline config *without secrets*, and add `https://ribhlab.github.io` to `REALMOTION_ALLOWED_ORIGINS` if needed. For the simplest one-click setup share the main Vercel URL which serves frontend and backend from the same origin.
+- **Charges:** cloud movie rendering is billed by Replicate depending on GPU model and duration. No calls are made until the owner configures tokens and an authorized user explicitly confirms generation. Do not expose the app publicly with a weak shared access code or unbounded provider credit.
+- **Video format:** the generated clips are MP4; browser assembly records a real 30-second movie (WebM on most Chrome devices; MP4 where the browser's MediaRecorder supports it). The download format varies by browser. Browser merging takes roughly the actual movie duration and may need desktop memory; individual clips remain available.
+- **Limitations:** it is a cloud-ready beta, not an end-to-end validated live GPU service. Facial identity is not locked; a multi-child collage may not be faithfully converted into one coherent shared scene; Arabic/Darija lip synchronization and generated voices may vary. Browser-side job state is not persistent across refreshes.
+
+**Cloud setup walkthrough:** [CLOUD_SETUP.md](CLOUD_SETUP.md). Never publish children's original photos in this public repository; the browser transmits chosen photos only to the cloud video API after pressing Generate.
+
+---
+
 ## Features
 
 - Modern Arabic (Darija) web interface optimized for desktop and phones.

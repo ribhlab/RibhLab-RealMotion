@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#101322" />
+<meta name="description" content="RibhLab RealMotion — حوّل صور الشخصيات إلى فيلم 30 ثانية بالحركة والصوت باستخدام الذكاء الاصطناعي السحابي." />
+<title>RibhLab RealMotion | AI Film Studio</title>
+<link rel="stylesheet" href="cloud.css?v=2" />
+</head>
+<body>
+<header class="topbar">
+ <a href="https://github.com/ribhlab/RibhLab-RealMotion" class="brand" target="_blank" rel="noopener"><span class="brand-symbol">◈</span><span>RibhLab <b>RealMotion</b><small>AI MOVIE STUDIO</small></span></a>
+ <div class="topright"><span id="engineState" class="engine offline"><i></i> الاتصال بالمحرك...</span><a class="github" href="https://github.com/ribhlab/RibhLab-RealMotion" target="_blank" rel="noopener">GitHub ↗</a></div>
+</header>
+<main>
+<section class="hero"><p class="eyebrow">YOUR PHOTOS. THEIR MOVIE.</p><h1>صورهم... <em>وخلي الخيال يتحرك.</em></h1><p class="lead">4 صور فقط. القصة والحركة والكلام والسباق موجدين. RealMotion كينتج 6 مشاهد AI حقيقية من 5 ثواني ويجمعهم ففيلم ديال 30 ثانية.</p><div class="pillrow"><span>✦ حركة AI حقيقية</span><span>◉ حوارات وصوت</span><span>↗ 30 ثانية</span><span>🔒 الصور ما كتتنشرش فـGitHub</span></div></section>
+<section class="studio" aria-labelledby="studioTitle"><div class="sectionTitle"><div><span class="kicker">01 — UPLOAD CHARACTERS</span><h2 id="studioTitle">شكون غادي يشارك فالفيلم؟</h2><p>اختار صورة واضحة لكل شخصية. ما خاصك حتى برنامج ولا GPU فالجهاز.</p></div><span class="counter" id="imagesCount">0 / 4 صور</span></div>
+<div id="slots" class="slots">
+<label class="slot" data-id="driver"><input accept="image/png,image/jpeg,image/webp" type="file" hidden/><div class="slotPreview"><span class="slotIcon">🏎️</span><img alt="صورة سائق لامبورغيني" hidden /></div><strong>سائق اللامبورغيني</strong><small>السيارة الصفراء</small><span class="slotAction">+ اختار صورة</span></label>
+<label class="slot" data-id="unicorn"><input accept="image/png,image/jpeg,image/webp" type="file" hidden/><div class="slotPreview"><span class="slotIcon">🦄</span><img alt="صورة أميرة اليونيكورن" hidden /></div><strong>أميرة اليونيكورن</strong><small>السحر والمغامرة</small><span class="slotAction">+ اختار صورة</span></label>
+<label class="slot" data-id="spider"><input accept="image/png,image/jpeg,image/webp" type="file" hidden/><div class="slotPreview"><span class="slotIcon">🕸️</span><img alt="صورة البطل العنكبوتي" hidden /></div><strong>البطل العنكبوتي</strong><small>القفز والأكشن</small><span class="slotAction">+ اختار صورة</span></label>
+<label class="slot" data-id="bat"><input accept="image/png,image/jpeg,image/webp" type="file" hidden/><div class="slotPreview"><span class="slotIcon">🦇</span><img alt="صورة البطل الليلي" hidden /></div><strong>البطل الليلي</strong><small>السيارة السوداء</small><span class="slotAction">+ اختار صورة</span></label>
+</div></section>
+<section class="studio sceneStudio" aria-labelledby="storyTitle"><div class="sectionTitle"><div><span class="kicker">02 — AUTOMATIC STORYBOARD</span><h2 id="storyTitle">القصة واجدة 🎬</h2><p>ما محتاج تعمّر والو. تقدر تشوف وتبدّل الكلام والمشاهد اختيارياً.</p></div><span class="counter">6 × 5s = 30s</span></div>
+<div id="timeline" class="timeline"></div>
+<details class="advanced"><summary>✎ تعديل الحوار ووصف المشاهد (اختياري)</summary><div id="editScenes" class="sceneInputs"></div></details>
+</section>
+<section class="studio lastStudio"><div class="sectionTitle"><div><span class="kicker">03 — RENDER YOUR MOVIE</span><h2>حوّل الصور لفيديو</h2><p>GPU سحابي. النتيجة كتوصلك من داخل المتصفح.</p></div></div>
+<div id="notice" class="notice info"><strong>حالة الخدمة</strong><p id="noticeText">كنتحقق من اتصال محرك الفيديو...</p></div>
+<div class="actionRow"><div class="access"><label for="pin">كود الولوج الخاص بمالك التطبيق</label><input id="pin" type="password" autocomplete="off" placeholder="كود سري مضبوط مرة واحدة فالخادم" minlength="12"/><small>خاص غير باش نحمي رصيد AI. ماشي مفتاح API وما كيتخزنش فـGitHub.</small></div><button id="makeBtn" class="makeBtn" disabled><span>✦ أنتج الفيلم ديالي (30s)</span><small>المعالجة السحابية تستهلك رصيد GPU</small></button></div>
+<div id="progressPanel" class="progressPanel" hidden><div class="progressHeader"><strong id="progressLabel">التحضير...</strong><span id="progressPct">0%</span></div><div class="progressTrack"><div id="progressBar"></div></div><p id="progressDetail" aria-live="polite"></p><button class="cancelBtn" id="stopBtn">إيقاف بعد المشهد الحالي</button></div>
+<section id="results" hidden><h3>🎞️ مشاهد الفيلم</h3><div id="clips" class="clips"></div><div class="finalActions"><button id="mergeBtn" class="makeBtn">🎬 جمع 6 المشاهد ففيديو واحد</button><a id="downloadLink" hidden download>⬇ تحميل الفيلم</a></div><p class="smallNote">التجميع يتم على جهازك داخل المتصفح؛ الفيديو المجمّع يكون WebM عندما لا يدعم المتصفح MP4. مقاطع AI قابلة للتحميل منفردة.</p></section>
+</section>
+</main>
+<footer><span>© 2026 RibhLab RealMotion · Built on GitHub</span><span>صور الأطفال تبقى فالمتصفح إلى أن تختار التوليد، ومن بعد كتترسل لمزود AI السحابي. ما كتتنشرش فالمستودع.</span></footer>
+<script src="cloud.js?v=2" defer></script>
+</body>
+</html>
