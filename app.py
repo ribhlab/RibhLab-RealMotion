@@ -140,7 +140,7 @@ def update_storyboard(project_id: str, body: Storyboard):
     with _lock:
         folder = directory(project_id)
         project = load_project(project_id)
-        if any(job['status'] in ('queued', 'running') and job['project_id'] == project_id for job in _jobs.values()):
+        if any(job['status'] in ('queued', 'running') and job.get('project_id') == project_id for job in _jobs.values()):
             raise HTTPException(409, 'Cannot edit while rendering')
         project['scenes'] = [scene.model_dump() for scene in body.scenes]
         save_project(folder, project)
@@ -234,7 +234,7 @@ def _queue_video_render(project_id: str, *, preview: bool = False):
         if scene.get('audio_file') and not (directory(project_id) / 'audio' / scene['audio_file']).is_file():
             raise HTTPException(422, 'Audio file is missing')
     with _lock:
-        if any(j['status'] in ('running', 'queued') and j['project_id'] == project_id for j in _jobs.values()):
+        if any(j['status'] in ('running', 'queued') and j.get('project_id') == project_id for j in _jobs.values()):
             raise HTTPException(409, 'Render is already running')
         job_id = str(uuid.uuid4())
         _jobs[job_id] = {'id': job_id, 'project_id': project_id, 'status': 'queued',
