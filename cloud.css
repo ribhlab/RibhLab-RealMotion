@@ -5,3 +5,5 @@
 .testRow button{cursor:pointer;border:1px solid var(--line);border-radius:14px;color:var(--text);background:#24283e;padding:13px 17px;font-weight:700;min-height:44px}
 .testRow button:hover:not(:disabled){border-color:var(--sky);background:#2e3654}
 .testRow button:disabled{opacity:.45;cursor:not-allowed}
+
+.freeTrial{display:inline-flex;align-items:center;justify-content:center;min-height:44px;border:1px solid #488c93;border-radius:14px;color:#d6ffec;text-decoration:none;background:#17383c;padding:13px 17px;font-weight:700;text-align:center}.freeTrial:hover{background:#204f51}
