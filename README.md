@@ -12,6 +12,9 @@ RealMotion now runs video generation **on your own Windows NVIDIA GPU** using lo
 
 - **No Replicate, no Vercel, no per-video credits or remote API keys** required by the default local app.
 - **Start on Windows:** download the repo ZIP and double-click `Start-RealMotion.bat`.
+- **One-time Wan 5B download:** after first launch, double-click `Install-Wan-Motion-Models.bat` to fetch/verify official weights (~18 GB).
+- **Optional one-click offline Arabic voice:** double-click `Install-Offline-Voice.bat`.
+- **Lower-VRAM test:** use **⚡ تجربة 30 ثانية حركة فقط** inside the local app to generate motion with Wan 5B and no 14B speaking model.
 - **One-time prerequisites:** Python 3.11+, FFmpeg, NVIDIA driver, ComfyUI Portable NVIDIA, downloaded Wan model files.
 - **Optional offline speech:** `windows/setup_voice.ps1` installs a local Arabic Piper model once; alternatively Windows SAPI or your own recordings can be used.
 - **Local page:** `http://127.0.0.1:8000` on the same computer. The public GitHub Pages is only a download portal, not an upload destination.
