@@ -1,0 +1,11 @@
+__pycache__/
+.pytest_cache/
+.venv/
+*.py[cod]
+.env
+local_data/
+*.mp4
+*.safetensors
+*.pt
+*.ckpt
+.DS_Store
