@@ -6,19 +6,19 @@ RealMotion is **not** a slideshow maker. Every shot is submitted to actual video
 
 > **Status: development MVP (v0.1).** The UI, upload and storyboard API, native Wan 2.2 graph builders, ComfyUI queueing/download, optional voice generation, MP4 assembly and unit tests are implemented. The complete AI rendering pipeline has **not been executed end-to-end on a model-loaded GPU** in this environment. Face identity, accurate Darija lip-sync and prompt adherence depend on model quality and are **not guaranteed**. We deliberately do not claim otherwise.
 
-## ☁️ Cloud Web App — only upload four photos
+## ⚡ Local NVIDIA mode — default (no paid API)
 
-**GitHub Pages** is the public UI. A connected **Vercel Node serverless API** can securely call **Replicate** for AI video motion, Arabic speech synthesis and audio-driven lip-sync. End users only upload 4 photos, enter an owner access code and press Generate; a default 6×5-second movie is preconfigured. **A GPU provider account and credit are still required**: GitHub Pages and GitHub Actions do not provide video-generation GPUs.
+RealMotion now runs video generation **on your own Windows NVIDIA GPU** using local ComfyUI and local Wan 2.2 model files. GitHub and GitHub Pages hold the source and the download instructions only; they do not host an inference service.
 
-- **Static frontend:** root `index.html`, `cloud.css`, `cloud.js` (runs from GitHub Pages or Vercel). This does not need Windows, ComfyUI, Python or local NVIDIA.
-- **Secure cloud endpoints:** `api/config.js`, `api/start.js`, `api/status.js`, `api/media.js`. Server token is kept as a server-side environment secret, never in `cloud.js`.
-- **One-time owner setup:** connect this repo to a Vercel project and configure encrypted environment variables `REPLICATE_API_TOKEN` and `REALMOTION_ACCESS_PIN` (at least 12 characters). Deploy after saving. The public site shows **not connected** until both are set. Do **not** paste these secrets into GitHub or chat.
-- **If using the GitHub Pages mirror:** point `window.REALMOTION_API_BASE` to your deployed Vercel app in `cloud.js` or a small inline config *without secrets*, and add `https://ribhlab.github.io` to `REALMOTION_ALLOWED_ORIGINS` if needed. For the simplest one-click setup share the main Vercel URL which serves frontend and backend from the same origin.
-- **Charges:** cloud movie rendering is billed by Replicate depending on GPU model and duration. No calls are made until the owner configures tokens and an authorized user explicitly confirms generation. Do not expose the app publicly with a weak shared access code or unbounded provider credit.
-- **Video format:** the generated clips are MP4; browser assembly records a real 30-second movie (WebM on most Chrome devices; MP4 where the browser's MediaRecorder supports it). The download format varies by browser. Browser merging takes roughly the actual movie duration and may need desktop memory; individual clips remain available.
-- **Limitations:** it is a cloud-ready beta, not an end-to-end validated live GPU service. Facial identity is not locked; a multi-child collage may not be faithfully converted into one coherent shared scene; Arabic/Darija lip synchronization and generated voices may vary. Browser-side job state is not persistent across refreshes.
+- **No Replicate, no Vercel, no per-video credits or remote API keys** required by the default local app.
+- **Start on Windows:** download the repo ZIP and double-click `Start-RealMotion.bat`.
+- **One-time prerequisites:** Python 3.11+, FFmpeg, NVIDIA driver, ComfyUI Portable NVIDIA, downloaded Wan model files.
+- **Optional offline speech:** `windows/setup_voice.ps1` installs a local Arabic Piper model once; alternatively Windows SAPI or your own recordings can be used.
+- **Local page:** `http://127.0.0.1:8000` on the same computer. The public GitHub Pages is only a download portal, not an upload destination.
+- **Privacy:** pictures and generated MP4 files are stored on your computer under `local_data/`, never in public GitHub.
+- **Honest limitation:** this is a GPU-dependent development MVP and complete rendering has not been validated end-to-end on the user's GPU. Natural Darija voice, consistent faces, lip sync and multiplayer interactions are not guaranteed.
 
-**Cloud setup walkthrough:** [CLOUD_SETUP.md](CLOUD_SETUP.md). Never publish children's original photos in this public repository; the browser transmits chosen photos only to the cloud video API after pressing Generate.
+**Full Windows installation and offline setup:** [WINDOWS_LOCAL.md](WINDOWS_LOCAL.md).
 
 ---
 
@@ -30,11 +30,15 @@ RealMotion is **not** a slideshow maker. Every shot is submitted to actual video
 - Two genuine generation modes:
   - **Motion / car scene:** Wan2.2-TI2V-5B native ComfyUI video generation.
   - **Talking / lip movement:** Wan2.2-S2V-14B conditioned on real audio and a portrait. This is a separate, heavier model, not a mouth-opening GIF.
-- Optional uploaded dialogue recordings; or optional `edge-tts` neural synthesis for a quick voice draft (needs network and third-party access).
+- Optional uploaded dialogue recordings; or free **offline** speech synthesis with Piper Arabic or Windows SAPI. No cloud voice API is used.
 - A sequential job worker, progress endpoint, error reporting, FFmpeg transcoding and final MP4 download.
 - Photos/voices and generated clips remain under the local `local_data/` folder, which is excluded from Git.
 
 ## Quick start
+
+**Windows NVIDIA (recommended):** See [WINDOWS_LOCAL.md](WINDOWS_LOCAL.md); double-click `Start-RealMotion.bat` after installing the one-time prerequisites.
+
+**Manual start (advanced):**
 
 **Prerequisites:** Python 3.11+, FFmpeg/FFprobe on PATH, and a separately running updated [ComfyUI](https://github.com/Comfy-Org/ComfyUI) with an NVIDIA GPU and the relevant model files. The 5B workflow is the lighter mode (official ComfyUI guidance says it can fit in ~8 GB VRAM with offloading); the **14B S2V talking model requires significantly more resources**. A free GitHub repository does not provide GPU compute.
 
@@ -83,9 +87,11 @@ uvicorn app:app --host 127.0.0.1 --port 8000
 
 **Important:** Facial resemblance is probabilistic. Single-portrait I2V does **not** guarantee realistic driving from a portrait taken outside a car; use a starting picture already showing the person in the desired setting for better results. A scene with multiple children interacting needs an appropriate *combined starting reference*, reference-conditioning workflow or manually composed scene; v0.1 does not offer identity locking for several different faces in one shot. S2V audio embedding may be English-biased; Moroccan Arabic results need testing.
 
-### Voices
+### Voices — offline by default
 
-To avoid another person's actual voice being imitated, RealMotion synthesizes a fresh generic voice through `edge-tts` if the scene has text but no audio file. This service is **online, unofficial and not guaranteed to remain available or cost-free**. Upload a legally obtained voice recording per talking shot to avoid relying on that service. You should have consent to use all photos and audio, especially for children. This local-first app does **not** upload any photographs to GitHub; actual requests go to the **ComfyUI instance that you configure**. Do not expose the server publicly without authentication and HTTPS.
+Automatic speech uses locally installed **Piper Arabic (`ar_JO-kareem-medium`)** first; on Windows it falls back to installed **Windows SAPI** voices. Run `windows/setup_voice.ps1` once to download the Piper engine and voice data. Existing dialogue is used automatically if present; uploaded audio recordings are supported too. Piper Arabic is Jordanian, not specifically Moroccan, so Darija pronunciation may be imperfect.
+
+Neither audio generation nor video inference needs a cloud API after dependencies and models are downloaded. Consent is still required for photos and recordings of children. The app stays on `127.0.0.1` and should not be exposed publicly without authentication and HTTPS.
 
 ### Architecture
 
@@ -100,7 +106,7 @@ Browser (static/index.html + app.js)
     → final.mp4
 ```
 
-The app runs on `127.0.0.1` by default. Job states are in memory (lost if the process restarts), and the single background worker processes projects sequentially. Future improvements include persistent job storage, optional local speech models, and a visual scene compositor.
+The app runs on `127.0.0.1` by default. Job states are in memory (lost if the process restarts), and the single background worker processes projects sequentially. Future improvements include persistent job storage, more natural local Darija speech, face-identity controls and a visual scene compositor.
 
 ## Tests
 
