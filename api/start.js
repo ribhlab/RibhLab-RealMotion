@@ -23,5 +23,15 @@ module.exports=async function handler(req,res){
     }
     const result=await replicate(`/models/${MODES[data.type]}/predictions`,'POST',{input});
     res.status(202).json({id:result.id,status:result.status,type:data.type});
-  }catch(error){res.status(400).json({error:error.message||'تعذر بدء التوليد'});}
+  }catch(error){
+    const detail=String(error.message||'');
+    if(/insufficient credit|purchase credit|billing#billing|not enough credit/i.test(detail)){
+      return res.status(402).json({
+        code:'insufficient_credit',
+        error:'رصيد Replicate غير كاف لتشغيل هذا الموديل. المفتاح متصل ولكن الحساب خاصو رصيد مدفوع. تقدر تجرب الديمو المجاني ديال Wan 2.2، أو تشحن رصيد Replicate.',
+        billingUrl:'https://replicate.com/account/billing'
+      });
+    }
+    res.status(400).json({error:detail||'تعذر بدء التوليد'});
+  }
 };
