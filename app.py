@@ -411,6 +411,7 @@ class StudioRequest(BaseModel):
     prompt: str = Field(min_length=8, max_length=12000)
     seconds: int = Field(default=5, ge=1, le=600)
     with_voice: bool = True
+    render_mode: Literal["wan_ai", "stable_food"] = "wan_ai"
 
     @field_validator('seconds')
     @classmethod
@@ -489,7 +490,7 @@ def studio_reference_preview(asset_id: uuid.UUID):
 def _studio_worker(job_id: str, asset_id: uuid.UUID,
                    prompt: str, seconds: int, narration: str):
     import re
-    from studio import render_single_studio_video
+    from studio import render_single_studio_video, render_source_preserving_food
     folder = _studio_folder(asset_id)
     if _job_cancel.get(job_id, threading.Event()).is_set():
         _job_finished(job_id, 'cancelled', 'Cancelled before starting')
@@ -510,10 +511,20 @@ def _studio_worker(job_id: str, asset_id: uuid.UUID,
                            flags=re.IGNORECASE | re.DOTALL)
         video_prompt = prompt[:speech.start()].strip() if speech and prompt[:speech.start()].strip() else prompt
         voiced_text = speech.group(1).strip() if speech and narration else ''
-        render_single_studio_video(
-            folder / 'reference.jpg', video_prompt, seconds,
-            out_dir / 'result.mp4', update, narration=voiced_text,
-            cancel_event=_job_cancel.setdefault(job_id, threading.Event()))
+        with _lock:
+            render_mode = _jobs[job_id].get('render_mode', 'wan_ai')
+        if render_mode == 'stable_food':
+            _job_log(job_id, 'Source-preserving 2.5D food mode; no diffusion or scene regeneration',
+                     progress=2, phase='preparing')
+            render_source_preserving_food(
+                folder / 'reference.jpg', seconds,
+                out_dir / 'result.mp4', update, narration=voiced_text,
+                cancel_event=_job_cancel.setdefault(job_id, threading.Event()))
+        else:
+            render_single_studio_video(
+                folder / 'reference.jpg', video_prompt, seconds,
+                out_dir / 'result.mp4', update, narration=voiced_text,
+                cancel_event=_job_cancel.setdefault(job_id, threading.Event()))
         _job_finished(job_id, 'done', 'Your MP4 is ready',
                       video_url=f'/api/studio/jobs/{job_id}/video')
     except Exception as exc:
@@ -568,6 +579,8 @@ def studio_generate(body: StudioRequest):
     if not (asset / 'reference.jpg').is_file():
         raise HTTPException(404, "Upload a photo or video first")
     long_mode = body.seconds == 600
+    if long_mode and body.render_mode == 'stable_food':
+        raise HTTPException(422, 'Source-preserving food mode is for short clips only')
     ids = list(dict.fromkeys(body.asset_ids or [body.asset_id]))
     if long_mode:
         if body.asset_id not in ids:
@@ -582,13 +595,18 @@ def studio_generate(body: StudioRequest):
         job_id = str(uuid.uuid4())
         _jobs[job_id] = {
             'id': job_id, 'status': 'queued', 'progress': 0, 'phase': 'queued',
-            'message': ('120 real AI scenes queued — checkpointed'
-                        if long_mode else 'Queued on local GPU'),
+            'message': ('120 real AI scenes queued — checkpointed' if long_mode
+                        else ('Source-preserving food render queued' if body.render_mode == 'stable_food'
+                              else 'Queued on local GPU')),
             'mode': 'longform' if long_mode else 'studio',
+            'render_mode': body.render_mode,
             'created_at': datetime.now(timezone.utc).isoformat()}
         _job_cancel[job_id] = threading.Event()
         _job_logs[job_id] = []
-        _job_log(job_id, 'Job queued for GPU and optional MacBook processing',
+        _job_log(job_id,
+                 ('Source-preserving food mode: stable image + transparent steam'
+                  if body.render_mode == 'stable_food'
+                  else 'Wan AI image-to-video: NVIDIA + optional MacBook processing'),
                  progress=0, phase='queued')
         if long_mode:
             executor.submit(_studio_long_worker, job_id, ids, body.prompt.strip(),
