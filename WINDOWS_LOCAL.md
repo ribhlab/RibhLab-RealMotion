@@ -87,3 +87,61 @@ Open **http://127.0.0.1:8000** on the Windows machine. For the first video+audio
 **Important:** The GitHub Pages link is only the **download portal**. GitHub Pages has no access to your NVIDIA GPU. Opening `127.0.0.1:8000` on your phone opens the phone itself, not your computer. Use the browser on the same Windows PC for the default secure configuration. No public ports, tunnels or external services are enabled.
 
 If generation fails, read the error in the studio and the ComfyUI window. The code never silently swaps real AI motion for a slideshow.
+
+
+## Split RealMotion between two Windows computers (MacBook Boot Camp + NVIDIA PC)
+
+Optional LAN offload supports **Firefly-style Studio clips of 1–10 seconds**.
+The NVIDIA PC still performs Wan/ComfyUI AI inference; a second Windows PC
+(MacBook Pro Intel i9 / Radeon Pro 560X) performs FFmpeg normalization,
+optional local Arabic TTS, and final MP4 muxing. This **does not pool VRAM**,
+speed up ComfyUI's diffusion step, enable Radeon CUDA, or guarantee the
+6 GB NVIDIA GPU can render Wan successfully. Long-form/storyboard processing
+remains on the main PC in this initial LAN worker version.
+
+Both computers must be on the **same trusted private LAN**; use no public port
+forwarding, VPN exposure, or Internet hosting. The worker uses a per-installation
+secret token but plain HTTP on the local LAN, not TLS.
+
+1. **MacBook running Windows:** Install Python 3.11 and FFmpeg (including
+   ffprobe); clone/download the **same updated repo**, then run
+   `Start-Remote-Worker.bat`. It installs Python requirements, generates
+   `.worker_token` locally, and starts the CPU worker on port 8787. No ComfyUI,
+   NVIDIA GPU, or Wan weights needed on this computer. Optional Arabic Piper
+   voice can be installed via `Install-Offline-Voice.bat` on this MacBook.
+2. In a MacBook PowerShell, find its local IPv4: `ipconfig`. Read your private
+   token using `Get-Content .worker_token` **locally**; never paste the
+   secret into ChatGPT, GitHub, a screenshot, or a public message.
+3. On the MacBook, allow inbound TCP **8787 from LocalSubnet only** on the
+   **Private** Windows firewall profile (PowerShell running as admin):
+   ```powershell
+   New-NetFirewallRule -DisplayName 'RibhLab LAN Worker' -Direction Inbound -Protocol TCP -LocalPort 8787 -RemoteAddress LocalSubnet -Profile Private -Action Allow
+   ```
+   Confirm your home Wi-Fi or Ethernet is configured as a Private network.
+4. On the **NVIDIA PC**, first test reachability from PowerShell:
+   ```powershell
+   Test-NetConnection 192.168.1.50 -Port 8787
+   ```
+   Replace `192.168.1.50` with the actual MacBook IPv4. A successful TCP test
+   confirms the machines can communicate, not that video rendering works.
+5. In the **same NVIDIA PC PowerShell** window used to launch RealMotion:
+   ```powershell
+   $env:REALMOTION_WORKER_URL = 'http://192.168.1.50:8787'
+   $env:REALMOTION_WORKER_TOKEN = '<your private token from the MacBook>'
+   cd C:\AI\RibhLab-RealMotion
+   .\Start-RealMotion.bat
+   ```
+   Substitute the real IPv4 and token. This token stays in the local process
+   environment; do not put it into a public repository. The launcher inherits
+   these variables. Keep ComfyUI running on the NVIDIA computer.
+
+6. Upload a photo to `http://127.0.0.1:8000` on the NVIDIA PC and
+   generate a 3-second clip. When its ComfyUI motion finishes, the clip is
+   sent to the MacBook worker and the resulting MP4 returned to the main
+   PC's local results folder. For speaking narration, include
+   `الكلام: النص المنطوق هنا` in the prompt and enable voice.
+
+If the worker is configured but unreachable, RealMotion reports a genuine
+error instead of pretending it offloaded successfully. To return to local
+processing, stop and restart RealMotion **without** the two worker environment
+variables. Do not expose port 8787 on the Internet.
