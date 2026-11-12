@@ -10,6 +10,7 @@ import json
 import os
 import shutil
 import subprocess
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -104,9 +105,15 @@ class ComfyError(RuntimeError):
     pass
 
 
+class GenerationCancelled(ComfyError):
+    """User explicitly cancelled GPU processing or postproduction."""
+    pass
+
+
 class ComfyClient:
     def __init__(self, base_url: str = "http://127.0.0.1:8188") -> None:
         self.base = base_url.rstrip('/')
+        self.client_id = "ribhlab-" + uuid.uuid4().hex
         self.client = httpx.Client(base_url=self.base, timeout=httpx.Timeout(45.0, connect=10.0), follow_redirects=False)
 
     def __enter__(self) -> "ComfyClient":
@@ -130,7 +137,7 @@ class ComfyClient:
         return f"{data.get('subfolder', '')}/{data['name']}".lstrip('/')
 
     def submit(self, graph: dict[str, Any]) -> str:
-        response = self.client.post('/prompt', json={"prompt": graph, "client_id": "ribhlab-realmotion"})
+        response = self.client.post('/prompt', json={"prompt": graph, "client_id": self.client_id})
         if response.status_code >= 400:
             raise ComfyError(f"ComfyUI rejected the graph ({response.status_code}): {response.text[:1800]}")
         data = response.json()
@@ -138,35 +145,125 @@ class ComfyClient:
             raise ComfyError(f"ComfyUI graph errors: {json.dumps(data['node_errors'])[:1700]}")
         return str(data['prompt_id'])
 
-    def wait_and_download(self, prompt_id: str, destination: Path, *, timeout: int = 3600) -> None:
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            response = self.client.get(f"/history/{prompt_id}")
+    def cancel(self, prompt_id: str) -> None:
+        """Delete our queued prompt; interrupt only if our prompt is running."""
+        try:
+            response = self.client.get('/queue', timeout=5)
             response.raise_for_status()
-            history = response.json().get(prompt_id)
-            if history:
-                status = history.get("status", {})
-                if status.get('status_str') == 'error':
-                    raise ComfyError(f"Generation failed: {str(status.get('messages'))[:1200]}")
-                for output in history.get('outputs', {}).values():
-                    # New SaveVideo may return 'videos'; previous ComfyUI versions use 'gifs'.
-                    for key in ('videos', 'gifs', 'images'):
-                        for item in output.get(key, []):
-                            name = item.get('filename', '')
-                            if not name.lower().endswith(('.mp4', '.webm', '.mov', '.mkv', '.gif')):
-                                continue
-                            file_resp = self.client.get('/view', params={
-                                'filename': name, 'type': item.get('type', 'output'),
-                                'subfolder': item.get('subfolder', '')
-                            }, timeout=300)
-                            file_resp.raise_for_status()
-                            destination.write_bytes(file_resp.content)
-                            return
-                # Important: do not silently pretend that an image or an empty history is a video.
-                if status.get('completed') or status.get('status_str') == 'success':
-                    raise ComfyError('ComfyUI finished but SaveVideo did not return a downloadable video')
-            time.sleep(3)
-        raise ComfyError(f"Generation did not complete in {timeout}s; task id: {prompt_id}")
+            queue = response.json()
+            pending = any(len(item) > 1 and str(item[1]) == prompt_id
+                          for item in queue.get('queue_pending', []))
+            running = any(len(item) > 1 and str(item[1]) == prompt_id
+                          for item in queue.get('queue_running', []))
+            if pending:
+                self.client.post('/queue', json={'delete': [prompt_id]}, timeout=5).raise_for_status()
+            if running:
+                self.client.post('/interrupt', timeout=5).raise_for_status()
+        except (httpx.HTTPError, ValueError, TypeError) as exc:
+            raise ComfyError(f'Could not send cancellation to ComfyUI: {exc}') from exc
+
+    def wait_and_download(self, prompt_id: str, destination: Path, *,
+                          timeout: int = 3600, on_progress: Any = None,
+                          cancel_event: threading.Event | None = None) -> None:
+        """Live GPU sampler steps via ComfyUI websocket; HTTP history is authoritative.
+
+        A missing websocket does not fabricate step counts: fallback reports
+        queue/running state and checks for a real history output.
+        """
+        deadline = time.monotonic() + timeout
+        stop_ws = threading.Event()
+        ws_error: list[str] = []
+
+        def listen() -> None:
+            try:
+                from websockets.sync.client import connect
+                ws_url = self.base.replace('http://', 'ws://', 1).replace(
+                    'https://', 'wss://', 1)
+                with connect(ws_url + '/ws?clientId=' + self.client_id,
+                             open_timeout=5, close_timeout=2) as websocket:
+                    while not stop_ws.is_set():
+                        try:
+                            message = websocket.recv(timeout=1)
+                        except TimeoutError:
+                            continue
+                        if not isinstance(message, str):
+                            continue
+                        try:
+                            event = json.loads(message)
+                        except ValueError:
+                            continue
+                        kind = event.get('type')
+                        data = event.get('data') or {}
+                        if str(data.get('prompt_id', '')) != prompt_id:
+                            continue
+                        if kind == 'progress' and on_progress:
+                            value, maximum = int(data.get('value') or 0), int(data.get('max') or 0)
+                            if maximum > 0:
+                                on_progress('sampling', value, maximum)
+                        elif kind == 'executing' and on_progress and data.get('node') is not None:
+                            on_progress('node:' + str(data['node']), 0, 0)
+            except Exception as exc:
+                ws_error.append(type(exc).__name__)
+
+        thread = threading.Thread(target=listen, daemon=True, name='realmotion-gpu-progress')
+        thread.start()
+        last_queue = ''
+        last_queue_check = 0.0
+        try:
+            while time.monotonic() < deadline:
+                if cancel_event is not None and cancel_event.is_set():
+                    self.cancel(prompt_id)
+                    raise GenerationCancelled('GPU generation cancelled by user')
+                response = self.client.get(f'/history/{prompt_id}', timeout=15)
+                response.raise_for_status()
+                history = response.json().get(prompt_id)
+                if history:
+                    status = history.get('status', {})
+                    if status.get('status_str') == 'error':
+                        raise ComfyError(f"ComfyUI generation failed: {str(status.get('messages'))[:1800]}")
+                    for output in history.get('outputs', {}).values():
+                        for key in ('videos', 'gifs', 'images'):
+                            for item in output.get(key, []):
+                                name = item.get('filename', '')
+                                if not name.lower().endswith(('.mp4', '.webm', '.mov', '.mkv', '.gif')):
+                                    continue
+                                if on_progress:
+                                    on_progress('download', 1, 1)
+                                file_resp = self.client.get('/view', params={
+                                    'filename': name, 'type': item.get('type', 'output'),
+                                    'subfolder': item.get('subfolder', '')
+                                }, timeout=300)
+                                file_resp.raise_for_status()
+                                if cancel_event is not None and cancel_event.is_set():
+                                    raise GenerationCancelled('Cancelled before downloading final AI video')
+                                destination.write_bytes(file_resp.content)
+                                return
+                    if status.get('completed') or status.get('status_str') == 'success':
+                        raise ComfyError('ComfyUI completed but SaveVideo returned no downloadable MP4')
+                now = time.monotonic()
+                if now - last_queue_check >= 8 and on_progress:
+                    last_queue_check = now
+                    try:
+                        snapshot = self.client.get('/queue', timeout=8).json()
+                        pending = any(len(item) > 1 and str(item[1]) == prompt_id
+                                      for item in snapshot.get('queue_pending', []))
+                        running = any(len(item) > 1 and str(item[1]) == prompt_id
+                                      for item in snapshot.get('queue_running', []))
+                        label = 'queued' if pending else ('running' if running else '')
+                        if label and label != last_queue:
+                            last_queue = label
+                            on_progress(label, 0, 0)
+                    except (httpx.HTTPError, ValueError, TypeError):
+                        pass
+                # Responsive cancellation without a busy loop.
+                if cancel_event is not None:
+                    cancel_event.wait(1.0)
+                else:
+                    time.sleep(1.0)
+            raise ComfyError(f'AI generation timed out after {timeout}s; prompt id {prompt_id}. Review ComfyUI console.')
+        finally:
+            stop_ws.set()
+            thread.join(timeout=2)
 
 
 def normalize_clip(source: Path, target: Path, seconds: int, resolution: str = '720:1280') -> None:
