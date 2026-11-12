@@ -145,3 +145,66 @@ If the worker is configured but unreachable, RealMotion reports a genuine
 error instead of pretending it offloaded successfully. To return to local
 processing, stop and restart RealMotion **without** the two worker environment
 variables. Do not expose port 8787 on the Internet.
+
+
+## Debugging and cancelling a stuck generation (new UI)
+
+The Studio now includes a **Cancel generation** button, a stage-based progress
+bar, an elapsed timer, a MacBook health indicator, and a copyable **Logs**
+panel. ComfyUI websocket events report **actual sampling step counts** when
+available; the overall 0–100% percentage is an approximate stage-weighted
+display, **not** a precise ETA or a guarantee that the GPU can load Wan.
+
+The main RealMotion process stores logs in
+`local_data/job_logs/<job-id>.log`; the browser button copies the current log.
+If a job is cancelled during the NVIDIA inference, RealMotion attempts to
+remove its queued prompt or interrupt its own active ComfyUI prompt. During
+FFmpeg or voice synthesis it cancels at the next safe point; it does **not**
+promise instantaneous termination of a running subprocess. The MacBook shows
+`received`, `encoding`, `voice`, `mixing`, or `done` only if both
+computers use the latest worker code.
+
+### Upgrade both Windows computers
+
+**MacBook first:** In its running worker window press Ctrl+C. In a separate
+PowerShell window, update its copy of the repo:
+
+```powershell
+git -C "C:\Users\ram\RibhLab-RealMotion" pull --ff-only origin main
+```
+
+Restart the worker by double-clicking
+`C:\Users\ram\RibhLab-RealMotion\Start-Remote-Worker.bat`.
+The local `.worker_token` secret stays unchanged and must **never** be pasted
+into a chat, screenshot, log, or committed to Git.
+
+**NVIDIA PC:** If an earlier generation is still executing, use ComfyUI's
+native Interrupt (only when it is *your* running job); then stop the old
+RealMotion window using Ctrl+C. Pull:
+
+```powershell
+git -C "C:\AI\RibhLab-RealMotion" pull --ff-only origin main
+```
+
+Start RealMotion with its existing local MacBook pairing environment in the
+same PowerShell session. If you opened a new PowerShell, re-enter the worker
+URL and token locally, without sharing the token online:
+
+```powershell
+$env:REALMOTION_WORKER_URL='http://192.168.1.2:8787'
+$secret=Read-Host 'MacBook worker token' -AsSecureString
+$env:REALMOTION_WORKER_TOKEN=([System.Net.NetworkCredential]::new('',$secret)).Password
+& 'C:\AI\RibhLab-RealMotion\Start-RealMotion.bat'
+```
+
+If the MacBook IP changed, replace 192.168.1.2 with its current private IPv4.
+Hard-refresh the Studio browser tab (Ctrl+Shift+R). The diagnostic panel will
+show whether the worker is connected and authenticated; a successful
+`TcpTestSucceeded` alone does not prove the token is correct.
+
+Make the first test a **3-second video with voice OFF**, then try Arabic voice.
+For Arabic speech on the MacBook, install its optional Piper voice there; an
+English-only Windows SAPI installation may otherwise mispronounce Arabic. This
+lightweight workflow overlays a soundtrack and **does not lip-sync mouth
+movements**, even if the prompt asks for lip synchronization.
+
