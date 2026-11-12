@@ -71,7 +71,7 @@ def test_studio_worker_splits_dialogue_from_motion_prompt(tmp_path, monkeypatch)
     with server._lock:
         server._jobs[job_id]={'id':job_id,'status':'queued','progress':0,'message':''}
     calls=[]
-    def fake_render(reference, prompt, seconds, output, update, *, narration=''):
+    def fake_render(reference, prompt, seconds, output, update, *, narration='', cancel_event=None):
         calls.append((prompt, narration, seconds))
         output.parent.mkdir(parents=True,exist_ok=True)
         output.write_bytes(b'FAKE TEST ONLY')
