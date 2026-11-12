@@ -88,6 +88,7 @@ def process(
     video: UploadFile = File(...),
     seconds: int = Form(..., ge=1, le=10),
     narration: str = Form(default="", max_length=12000),
+    resolution: str = Form(default="720:1280", pattern=r"^(1280:720|720:1280|960:960)$"),
     job_id: str = Form(default=""),
     x_realmotion_token: str | None = Header(default=None),
 ):
@@ -121,7 +122,7 @@ def process(
         normalized = workdir / "normalized.mp4"
         finished = workdir / "finished.mp4"
         _stage(job_id, 'encoding', 'MacBook FFmpeg encoding MP4')
-        normalize_clip(raw, normalized, seconds, resolution="720:1280")
+        normalize_clip(raw, normalized, seconds, resolution=resolution)
         _check_cancel(job_id)
         if narration.strip():
             _stage(job_id, 'voice', 'MacBook synthesizing Arabic narration')
