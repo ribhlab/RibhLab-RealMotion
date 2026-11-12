@@ -75,7 +75,7 @@ async function poll(){
       clearInterval(state.poller);state.poller=null;state.busy=false;state.job=null;
       $('progress').classList.add('hidden');$('previewPanel').classList.add('hidden');
       $('result').classList.remove('hidden');$('player').src=job.video_url;
-      $('download').href=job.video_url;status('الفيديو واجد! تقدر تشوفو وتحمّلو MP4','success');updateButton();
+      $('download').href=job.video_url;$('download').download=Number($('duration').value)===600?'RibhLab-RealMotion-10min.mp4':'RibhLab-RealMotion.mp4';status('الفيديو واجد! تقدر تشوفو وتحمّلو MP4','success');updateButton();
     }else if(job.status==='failed'){
       clearInterval(state.poller);state.poller=null;state.busy=false;state.job=null;
       $('progress').classList.add('hidden');status('التوليد فشل: '+job.message,'error');updateButton();
@@ -85,15 +85,20 @@ async function poll(){
 async function generate(){
   const prompt=$('prompt').value.trim();
   if(!state.active||prompt.length<8){status('زيد صورة وكتب وصف فيه على الأقل 8 حروف','error');return}
+  const longMode=Number($('duration').value)===600;
+  if(longMode && state.assets.length<2){
+    status('فيديو 10 دقائق من صورة وحدة غادي يكون متكرر. من الأحسن تزيد صور ومشاهد مختلفة، ولكن يمكنك تولدو بهذا المرجع.','neutral');
+  }
   state.busy=true;updateButton();
   $('progress').classList.remove('hidden');$('bar').style.width='1%';
   $('result').classList.add('hidden');
-  status('كنبدا توليد الفيديو على NVIDIA ديالك...');
+  status(longMode?'كنوجد 120 لقطة AI لملف 10 دقائق. المشروع طويل وكيحفظ كل لقطة ناجحة باش يعاود يكمل.':'كنبدا توليد الفيديو على NVIDIA ديالك...');
   try{
     const job=await api('/api/studio/generate',{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({asset_id:state.active.id,prompt,
-        seconds:Number($('duration').value),with_voice:$('withVoice').checked})
+      body:JSON.stringify({asset_id:state.active.id,
+        asset_ids:longMode?state.assets.map(asset=>asset.id):[state.active.id],
+        prompt,seconds:Number($('duration').value),with_voice:$('withVoice').checked})
     });
     state.job=job.id;
     await poll();
@@ -109,6 +114,12 @@ function init(){
   $('addMore').addEventListener('click',openFiles);
   $('fileInput').addEventListener('change',e=>{upload(e.target.files);e.target.value=''});
   $('prompt').addEventListener('input',updateButton);
+  $('duration').addEventListener('change',()=>{
+    const longMode=Number($('duration').value)===600;
+    $('footnote').textContent=longMode?
+      '10 دقائق = 120 لقطة متتابعة من 5 ثواني. التحميل ثقيل على 6GB GPU؛ زيد مراجع متنوعة ونص تعليق طويل بعد «الكلام:». يمكن استئناف اللقطات الناجحة. الفيديو المرفوع غير مرجع من أول لقطة.':
+      'الفيديو المرفوع كيتستعمل من أول صورة فيه كمرجع؛ تعديل الفيديو الكامل ومزامنة الشفاه مازال ما مدعومينش فهاد النسخة.';
+  });
   $('generate').addEventListener('click',generate);
   const zone=$('stage');
   for(const type of ['dragenter','dragover']){
