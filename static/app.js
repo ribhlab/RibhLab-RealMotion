@@ -164,6 +164,10 @@ async function check(){
       unreachable:'MacBook: لا يمكن الاتصال بالسيرفر'
     };
     $('workerConnection').textContent=workerInfo[state.worker]||('MacBook: '+state.worker);
+    const remoteStep=$('productionStages').querySelector('[data-phase="macbook"]');
+    remoteStep.textContent=state.worker==='connected'
+      ? '◉ MacBook · الصوت والمونتاج'
+      : '◉ الحاسوب المحلي · الصوت والمونتاج';
   }catch(e){
     $('led').classList.remove('online');
     $('connectivity').textContent='سيرفر AI غير متصل';
@@ -178,6 +182,12 @@ async function poll(){
     updateDashboard(job);
     status(job.message||'كنوجد الفيديو');
     elapsed();
+    const lastUpdate=Date.parse(job.updated_at||job.created_at||'');
+    if(job.status==='running'&&Number.isFinite(lastUpdate)
+        &&Date.now()-lastUpdate>240000){
+      status('⚠ ما بانش تقدم جديد لأكثر من 4 دقائق. افتح Logs وتحقق من نافذة ComfyUI؛ ممكن الموديل كيتحمّل أو التوليد متوقف.','error');
+      $('debugPanel').open=true;
+    }
     await refreshLogs();
     if(['done','failed','cancelled'].includes(job.status))finishJob(job);
   }catch(e){
