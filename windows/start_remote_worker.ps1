@@ -7,7 +7,22 @@ if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue) -or -not (Get-Comman
 }
 $venv = Join-Path $project '.venv\Scripts\python.exe'
 if (-not (Test-Path $venv)) {
-  try { & py -3.11 -m venv (Join-Path $project '.venv') } catch { throw "Install Python 3.11 before running the worker." }
+  $python = $null
+  foreach ($version in @('3.12', '3.11')) {
+    try {
+      & py "-$version" --version *> $null
+      if ($LASTEXITCODE -eq 0) { $python = $version; break }
+    } catch {}
+  }
+  if ($python) {
+    Write-Host "Creating worker environment with Python $python..." -ForegroundColor Cyan
+    & py "-$python" -m venv (Join-Path $project '.venv')
+  } elseif (Get-Command python -ErrorAction SilentlyContinue) {
+    Write-Host "Creating worker environment with installed Python..." -ForegroundColor Cyan
+    & python -m venv (Join-Path $project '.venv')
+  } else {
+    throw "Python is missing. Install Python 3.11 or 3.12."
+  }
   if ($LASTEXITCODE -ne 0) { throw "Failed creating the Python environment." }
 }
 $reqFile = Join-Path $project 'requirements.txt'
