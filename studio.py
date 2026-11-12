@@ -22,9 +22,10 @@ from stable_motion import choose_output_size, choose_wan_size
 
 FPS = 16
 NEGATIVE = (
-    "static still image, frozen pose, poor quality, distorted anatomy, "
-    "deformed hands, extra fingers, face morphing, identity drift, "
-    "flicker, unnatural eyes, captions, watermark"
+    "poor quality, unnatural geometry, warped objects, melting textures, "
+    "distorted anatomy, deformed hands, extra fingers, face morphing, "
+    "identity drift, flicker, temporal inconsistencies, duplicate objects, "
+    "unnatural eyes, captions, text artifacts, watermark"
 )
 
 
