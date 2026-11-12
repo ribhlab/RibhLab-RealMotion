@@ -683,7 +683,8 @@ def render_single_studio_video(
 
 def render_source_preserving_food(
     image: Path, duration: int, output: Path, update: Any,
-    *, narration: str = "", cancel_event: threading.Event | None = None
+    *, narration: str = "", cancel_event: threading.Event | None = None,
+    steam_x: float = .50, steam_y: float = .65, steam_strength: float = .85
 ) -> str:
     """Visibly labelled 2.5D/steam mode. This does not invoke a diffusion model.
 
@@ -703,7 +704,8 @@ def render_source_preserving_food(
     try:
         try:
             render_stable_food_video(image, raw, duration, update,
-                                     cancel_event=cancel_event)
+                                     cancel_event=cancel_event, steam_x=steam_x,
+                                     steam_y=steam_y, steam_strength=steam_strength)
         except StableMotionCancelled as exc:
             raise GenerationCancelled(str(exc)) from exc
         if cancel_event is not None and cancel_event.is_set():
