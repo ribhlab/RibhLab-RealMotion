@@ -5,6 +5,7 @@ import json
 import os
 import threading
 import uuid
+from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Literal
@@ -25,6 +26,95 @@ app.mount('/static', StaticFiles(directory=BASE / 'static'), name='static')
 executor = ThreadPoolExecutor(max_workers=1)
 _lock = threading.RLock()
 _jobs: dict[str, dict] = {}
+_job_cancel: dict[str, threading.Event] = {}
+_job_logs: dict[str, list[str]] = {}
+
+
+def _job_log(job_id: str, message: str, *, progress: float | None = None,
+             phase: str | None = None) -> None:
+    """Timestamped diagnostics without passwords or private source prompts."""
+    with _lock:
+        job = _jobs.get(job_id)
+        if job is None:
+            return
+        previous = job.get('message')
+        if progress is not None:
+            job['progress'] = round(max(0, min(100, float(progress))), 1)
+        if phase is not None:
+            job['phase'] = phase
+        job['message'] = message
+        job['updated_at'] = datetime.now(timezone.utc).isoformat()
+        if previous == message and progress is None:
+            return
+        stamp = datetime.now(timezone.utc).strftime('%H:%M:%S UTC')
+        line = f"[{stamp}] {message}"
+        if progress is not None:
+            line += f" | stage={job.get('phase', '?')} | overall={job['progress']:.1f}%"
+        items = _job_logs.setdefault(job_id, [])
+        items.append(line)
+        if len(items) > 400:
+            del items[:-400]
+        try:
+            folder = DATA / 'job_logs'
+            folder.mkdir(exist_ok=True, parents=True)
+            with (folder / f'{job_id}.log').open('a', encoding='utf-8') as fp:
+                fp.write(line + '\n')
+        except OSError:
+            pass
+
+
+def _job_update(job_id: str, message: str, fraction: float) -> None:
+    if _job_cancel.get(job_id, threading.Event()).is_set():
+        from studio import GenerationCancelled
+        raise GenerationCancelled('User cancelled the job')
+    low = message.lower()
+    phase = ('macbook' if 'macbook' in low else
+             'voice' if 'voice' in low or 'speech' in low else
+             'export' if 'mp4' in low or 'encod' in low else
+             'gpu' if any(w in low for w in ('comfy', 'motion', 'sampl', 'decode', 'gpu', 'queue')) else
+             'preparing')
+    _job_log(job_id, message, progress=100 * fraction, phase=phase)
+
+
+def _job_finished(job_id: str, status: str, message: str, **fields) -> None:
+    with _lock:
+        job = _jobs[job_id]
+        if _job_cancel.get(job_id, threading.Event()).is_set():
+            status = 'cancelled'
+            message = 'Cancelled by user'
+        job.update(status=status, **(fields if status == 'done' else {}))
+    _job_log(job_id, message, progress=100 if status == 'done' else None, phase=status)
+
+
+@app.get('/api/jobs/{job_id}/logs')
+def get_job_logs(job_id: uuid.UUID):
+    from fastapi.responses import PlainTextResponse
+    key = str(job_id)
+    with _lock:
+        if key not in _jobs:
+            raise HTTPException(404, 'Unknown job')
+        lines = '\n'.join(_job_logs.get(key, []))
+    return PlainTextResponse(lines + ('\n' if lines else ''))
+
+
+@app.post('/api/jobs/{job_id}/cancel')
+def cancel_job(job_id: uuid.UUID):
+    key = str(job_id)
+    with _lock:
+        job = _jobs.get(key)
+        if job is None:
+            raise HTTPException(404, 'Unknown job')
+        if job['status'] in ('cancelled', 'done', 'failed'):
+            return job.copy()
+        if job.get('mode') not in ('studio', 'longform'):
+            raise HTTPException(409, 'Cancel is currently supported for Studio jobs')
+        event = _job_cancel.setdefault(key, threading.Event())
+        event.set()
+        job['status'] = 'cancelling'
+    _job_log(key, 'Cancel requested; stopping at the next safe point', phase='cancelling')
+    return _jobs[key].copy()
+
+
 ROLES = ('driver', 'unicorn', 'spider', 'batman')
 MAX_UPLOAD = 20 * 1024 * 1024
 
@@ -375,15 +465,18 @@ def _studio_worker(job_id: str, asset_id: uuid.UUID,
     import re
     from studio import render_single_studio_video
     folder = _studio_folder(asset_id)
+    if _job_cancel.get(job_id, threading.Event()).is_set():
+        _job_finished(job_id, 'cancelled', 'Cancelled before starting')
+        return
     with _lock:
-        _jobs[job_id].update(status='running', message='Connecting to ComfyUI')
+        _jobs[job_id]['status'] = 'running'
+    _job_log(job_id, 'Preparing Studio request', progress=1, phase='preparing')
     try:
         out_dir = DATA / 'studio_results' / job_id
         out_dir.mkdir(parents=True, exist_ok=True)
 
         def update(message, fraction):
-            with _lock:
-                _jobs[job_id].update(message=message, progress=round(100*fraction, 1))
+            _job_update(job_id, message, fraction)
 
         # Accept optional spoken phrase in the SAME prompt input.
         # Example: A person waves. الكلام: السلام عليكم
@@ -393,13 +486,16 @@ def _studio_worker(job_id: str, asset_id: uuid.UUID,
         voiced_text = speech.group(1).strip() if speech and narration else ''
         render_single_studio_video(
             folder / 'reference.jpg', video_prompt, seconds,
-            out_dir / 'result.mp4', update, narration=voiced_text)
-        with _lock:
-            _jobs[job_id].update(status='done', progress=100, message='Your MP4 is ready',
-                                 video_url=f'/api/studio/jobs/{job_id}/video')
+            out_dir / 'result.mp4', update, narration=voiced_text,
+            cancel_event=_job_cancel[job_id])
+        _job_finished(job_id, 'done', 'Your MP4 is ready',
+                      video_url=f'/api/studio/jobs/{job_id}/video')
     except Exception as exc:
-        with _lock:
-            _jobs[job_id].update(status='failed', message=str(exc)[:1500])
+        from studio import GenerationCancelled
+        if isinstance(exc, GenerationCancelled):
+            _job_finished(job_id, 'cancelled', 'Cancelled by user')
+        else:
+            _job_finished(job_id, 'failed', f'{type(exc).__name__}: {str(exc)[:1450]}')
 
 
 def _studio_long_worker(job_id: str, asset_ids: list[uuid.UUID],
@@ -407,8 +503,12 @@ def _studio_long_worker(job_id: str, asset_ids: list[uuid.UUID],
     import re
     from long_form import render_ten_minute_film
 
+    if _job_cancel.get(job_id, threading.Event()).is_set():
+        _job_finished(job_id, 'cancelled', 'Cancelled before starting')
+        return
     with _lock:
-        _jobs[job_id].update(status='running', message='Preparing ten-minute AI film')
+        _jobs[job_id]['status'] = 'running'
+    _job_log(job_id, 'Preparing ten-minute AI film', progress=1, phase='preparing')
     try:
         refs = [_studio_folder(asset_id) / 'reference.jpg'
                 for asset_id in asset_ids]
@@ -421,19 +521,19 @@ def _studio_long_worker(job_id: str, asset_ids: list[uuid.UUID],
         result_dir = DATA / 'studio_results' / job_id
 
         def update(message, fraction):
-            with _lock:
-                _jobs[job_id].update(message=message, progress=round(100*fraction, 1))
+            _job_update(job_id, message, fraction)
 
         render_ten_minute_film(
             refs, visual, narration, result_dir / 'result.mp4',
-            DATA, update)
-        with _lock:
-            _jobs[job_id].update(status='done', progress=100,
-                                 message='Ten-minute MP4 created',
-                                 video_url=f'/api/studio/jobs/{job_id}/video')
+            DATA, update, cancel_event=_job_cancel[job_id])
+        _job_finished(job_id, 'done', 'Ten-minute MP4 created',
+                      video_url=f'/api/studio/jobs/{job_id}/video')
     except Exception as exc:
-        with _lock:
-            _jobs[job_id].update(status='failed', message=str(exc)[:1500])
+        from studio import GenerationCancelled
+        if isinstance(exc, GenerationCancelled):
+            _job_finished(job_id, 'cancelled', 'Cancelled by user')
+        else:
+            _job_finished(job_id, 'failed', f'{type(exc).__name__}: {str(exc)[:1450]}')
 
 
 @app.post('/api/studio/generate', status_code=202)
@@ -451,14 +551,19 @@ def studio_generate(body: StudioRequest):
         if not all((_studio_folder(key) / 'reference.jpg').is_file() for key in ids):
             raise HTTPException(422, 'A reference image or video was not found')
     with _lock:
-        if any(j['status'] in ('queued', 'running') for j in _jobs.values()):
+        if any(j['status'] in ('queued', 'running', 'cancelling') for j in _jobs.values()):
             raise HTTPException(409, 'Another generation is still running')
         job_id = str(uuid.uuid4())
         _jobs[job_id] = {
-            'id': job_id, 'status': 'queued', 'progress': 0,
+            'id': job_id, 'status': 'queued', 'progress': 0, 'phase': 'queued',
             'message': ('120 real AI scenes queued — checkpointed'
                         if long_mode else 'Queued on local GPU'),
-            'mode': 'longform' if long_mode else 'studio'}
+            'mode': 'longform' if long_mode else 'studio',
+            'created_at': datetime.now(timezone.utc).isoformat()}
+        _job_cancel[job_id] = threading.Event()
+        _job_logs[job_id] = []
+        _job_log(job_id, 'Job queued for GPU and optional MacBook processing',
+                 progress=0, phase='queued')
         if long_mode:
             executor.submit(_studio_long_worker, job_id, ids, body.prompt.strip(),
                             body.with_voice)
