@@ -60,17 +60,17 @@
   <div class="composer-wrap">
     <div class="composer">
       <label class="prompt-label" for="prompt">شنو بغيتي تصاوب؟</label>
-      <textarea id="prompt" rows="2" maxlength="1800" placeholder="مثال: طفل كيسوق سيارة صفراء والكاميرا كتتبع الحركة بطريقة سينمائية. الكلام: يلا صحابي، نبداو السباق!"></textarea>
+      <textarea id="prompt" rows="2" maxlength="12000" placeholder="مثال: طفل كيسوق سيارة صفراء والكاميرا كتتبع الحركة بطريقة سينمائية. الكلام: يلا صحابي، نبداو السباق!"></textarea>
       <div class="composer-tools">
         <div class="settings">
-          <label class="setting duration-setting" for="duration">◷ <select id="duration" aria-label="Video duration"><option value="3">3 ثواني</option><option value="5" selected>5 ثواني</option><option value="8">8 ثواني</option></select></label>
+          <label class="setting duration-setting" for="duration">◷ <select id="duration" aria-label="Video duration"><option value="3">3 ثواني</option><option value="5" selected>5 ثواني</option><option value="8">8 ثواني</option><option value="600">10 دقائق · 120 لقطة AI</option></select></label>
           <label class="setting audio-setting"><input type="checkbox" id="withVoice" checked><span>◖)) صوت</span></label>
           <span class="hint-inline">باش الشخصية تهضر، زيد فالبرومبت: «الكلام: ...»</span>
         </div>
         <button class="generate-btn" type="button" id="generate" disabled><span>✦</span> Generate <span class="chevron">←</span></button>
       </div>
     </div>
-    <div class="footnote">الفيديو المرفوع كيتستعمل من أول صورة فيه كمرجع؛ تعديل الفيديو الكامل ومزامنة الشفاه مازال ما مدعومينش فهاد النسخة.</div>
+    <div class="footnote" id="footnote">الفيديو المرفوع كيتستعمل من أول صورة فيه كمرجع؛ تعديل الفيديو الكامل ومزامنة الشفاه مازال ما مدعومينش فهاد النسخة.</div>
   </div>
   <input id="fileInput" type="file" accept="image/png,image/jpeg,image/webp,video/mp4,video/webm,video/quicktime,video/x-m4v" multiple hidden>
 </div>
