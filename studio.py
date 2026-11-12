@@ -67,6 +67,91 @@ def image_to_video_graph(image_name: str, prompt: str, seconds: int, filename_pr
     }
 
 
+# Standalone, fully local LTXV 2B I2V graph, adapted from ComfyUI's
+# published ltxv/ltxv_image_to_video.json. No paid/commercial API nodes.
+# Uses the original LTXV core nodes, not the paid LTX-2.5 API.
+LTX_CHECKPOINT = "ltxv-2b-0.9.8-distilled-fp8.safetensors"
+LTX_TEXT_ENCODER = "t5xxl_fp8_e4m3fn.safetensors"
+LTX_REQUIRED_NODES = (
+    "CheckpointLoaderSimple", "CLIPLoader", "CLIPTextEncode",
+    "LoadImage", "LTXVImgToVideo", "LTXVConditioning",
+    "LTXVScheduler", "KSamplerSelect", "SamplerCustom",
+    "VAEDecode", "CreateVideo", "SaveVideo"
+)
+
+
+def ltx_image_to_video_graph(
+    image_name: str, prompt: str, seconds: int, filename_prefix: str,
+    *, width: int = 512, height: int = 288, seed: int | None = None
+) -> dict[str, Any]:
+    """ComfyUI native LTXV image-to-video, distilled FP8, 24 fps.
+
+    LTXV temporal length must equal 8*N+1, spatial dims must be x32.
+    6GB Turing GPU support is experimental; this builder makes no VRAM claim.
+    """
+    if not 1 <= seconds <= 10:
+        raise ValueError("LTX clips must be 1-10 seconds")
+    if min(width, height) < 128 or width % 32 or height % 32:
+        raise ValueError("LTX size must be multiples of 32 and >= 128")
+    fps = 24
+    frames = seconds * fps + 1
+    if (frames - 1) % 8:
+        raise ValueError("LTX frame count must be 8N+1")
+    if seed is None:
+        seed = int.from_bytes(os.urandom(4), 'big')
+    checkpoint = os.environ.get("LTX_I2V_MODEL", LTX_CHECKPOINT)
+    encoder = os.environ.get("LTX_TEXT_ENCODER", LTX_TEXT_ENCODER)
+    return {
+        "1": node("CheckpointLoaderSimple", ckpt_name=checkpoint),
+        # LTX uses ordinary T5-XXL and cannot reuse Wan's UMT5 encoder.
+        "2": node("CLIPLoader", clip_name=encoder, type="ltxv", device="cpu"),
+        "3": node("LoadImage", image=image_name),
+        "4": node("CLIPTextEncode", clip=["2", 0], text=prompt),
+        "5": node("CLIPTextEncode", clip=["2", 0], text=NEGATIVE),
+        "6": node("LTXVImgToVideo", positive=["4", 0], negative=["5", 0],
+                  vae=["1", 2], image=["3", 0], width=width, height=height,
+                  length=frames, batch_size=1, strength=1.0),
+        "7": node("LTXVConditioning", positive=["6", 0],
+                  negative=["6", 1], frame_rate=fps),
+        "8": node("LTXVScheduler", latent=["6", 2], steps=8,
+                  max_shift=2.05, base_shift=0.95, stretch=True, terminal=0.1),
+        "9": node("KSamplerSelect", sampler_name="euler"),
+        "10": node("SamplerCustom", model=["1", 0], positive=["7", 0],
+                   negative=["7", 1], sampler=["9", 0], sigmas=["8", 0],
+                   latent_image=["6", 2], add_noise=True,
+                   noise_seed=seed, cfg=1.0),
+        "11": node("VAEDecode", samples=["10", 0], vae=["1", 2]),
+        "12": node("CreateVideo", images=["11", 0], fps=fps),
+        "13": node("SaveVideo", video=["12", 0], filename_prefix=filename_prefix,
+                   format="auto", **{"format.codec": "auto"}),
+    }
+
+
+def check_ltx_ready(object_info: dict[str, Any]) -> list[str]:
+    """Return exact missing prerequisites without attempting GPU generation."""
+    missing = [kind for kind in LTX_REQUIRED_NODES if kind not in object_info]
+
+    def choices(kind: str, field: str) -> list[str]:
+        try:
+            values = object_info[kind]["input"]["required"][field][0]
+            return list(values) if isinstance(values, (list, tuple)) else []
+        except (KeyError, IndexError, TypeError):
+            return []
+
+    wanted_ckpt = os.environ.get("LTX_I2V_MODEL", LTX_CHECKPOINT)
+    wanted_clip = os.environ.get("LTX_TEXT_ENCODER", LTX_TEXT_ENCODER)
+    checkpoints = choices("CheckpointLoaderSimple", "ckpt_name")
+    clips = choices("CLIPLoader", "clip_name")
+    if "CheckpointLoaderSimple" in object_info and wanted_ckpt not in checkpoints:
+        missing.append("checkpoint: " + wanted_ckpt)
+    if "CLIPLoader" in object_info and wanted_clip not in clips:
+        missing.append("text encoder: " + wanted_clip)
+    clip_types = choices("CLIPLoader", "type")
+    if clip_types and "ltxv" not in clip_types:
+        missing.append("CLIPLoader type 'ltxv' (update ComfyUI)")
+    return missing
+
+
 def speech_to_video_graph(image_name: str, audio_name: str, prompt: str, seconds: int,
                           filename_prefix: str, *, width: int = 512, height: int = 768,
                           seed: int | None = None) -> dict[str, Any]:
@@ -586,7 +671,8 @@ def _process_studio_on_lan(raw: Path, output: Path, seconds: int,
 def render_single_studio_video(
     image: Path, prompt: str, duration: int, output: Path,
     update: Any, *, narration: str = "",
-    cancel_event: threading.Event | None = None
+    cancel_event: threading.Event | None = None,
+    engine: str = "wan_ai"
 ) -> str:
     """Single-reference Firefly-style local clip. This is image-to-video, not V2V.
 
@@ -604,33 +690,53 @@ def render_single_studio_video(
     tag = uuid.uuid4().hex[:12]
     workdir = output.parent / f"work_{tag}"
     workdir.mkdir(parents=True, exist_ok=True)
+    if engine not in ("wan_ai", "ltx_2b"):
+        raise ValueError("Unknown video engine")
     output_size = choose_output_size(image)
     resolution = f"{output_size[0]}:{output_size[1]}"
-    width, height = choose_wan_size(image)
-    custom_width = os.getenv("WAN_WIDTH")
-    custom_height = os.getenv("WAN_HEIGHT")
+    if engine == "ltx_2b":
+        width, height = ((512, 288) if output_size[0] > output_size[1] else
+                         (288, 512) if output_size[1] > output_size[0] else
+                         (384, 384))
+    else:
+        width, height = choose_wan_size(image)
+    custom_width = os.getenv("LTX_WIDTH" if engine == "ltx_2b" else "WAN_WIDTH")
+    custom_height = os.getenv("LTX_HEIGHT" if engine == "ltx_2b" else "WAN_HEIGHT")
     if bool(custom_width) != bool(custom_height):
         raise ValueError('Set both WAN_WIDTH and WAN_HEIGHT or neither')
     if custom_width and custom_height:
         width, height = int(custom_width), int(custom_height)
-    if min(width, height) < 128 or width % 16 or height % 16:
-        raise ValueError("WAN_WIDTH and WAN_HEIGHT must be multiples of 16 and >= 128")
+    divisor = 32 if engine == "ltx_2b" else 16
+    if min(width, height) < 128 or width % divisor or height % divisor:
+        raise ValueError(f"Video latent dimensions must be multiples of {divisor} and >= 128")
     if abs(width / height - output_size[0] / output_size[1]) > .15:
         raise ValueError('Wan latent orientation conflicts with the source photo; '
                          'unset WAN_WIDTH/WAN_HEIGHT for automatic aspect correction')
-    update(f"Photo layout {output_size[0]}x{output_size[1]} | Wan latent "
-           f"{width}x{height} | model {os.getenv('WAN_I2V_MODEL','Wan2.2-TI2V-5B-Q2_K.gguf')}", .02)
+    model_name = (os.getenv('LTX_I2V_MODEL', LTX_CHECKPOINT) if engine == "ltx_2b"
+                  else os.getenv('WAN_I2V_MODEL', 'Wan2.2-TI2V-5B-Q2_K.gguf'))
+    update(f"Photo layout {output_size[0]}x{output_size[1]} | "
+           f"{engine} latent {width}x{height} | model {model_name}", .02)
 
     if cancel_event is not None and cancel_event.is_set():
         raise GenerationCancelled('Cancelled before starting GPU')
     update("Connecting to local NVIDIA / ComfyUI", 0.05)
     with ComfyClient(os.getenv("COMFYUI_URL", "http://127.0.0.1:8188")) as comfy:
         comfy.health()
+        if engine == "ltx_2b":
+            info = comfy.client.get("/object_info", timeout=30)
+            info.raise_for_status()
+            missing = check_ltx_ready(info.json())
+            if missing:
+                raise ComfyError("LTX 2B is not ready: " + "; ".join(missing)
+                                 + ". See LTX_FREE_SETUP.md. No generation was started.")
         uploaded_name = comfy.upload(image)
-        graph = image_to_video_graph(
+        graph = (ltx_image_to_video_graph(
             uploaded_name, prompt, duration, f"realmotion/studio_{tag}",
             width=width, height=height)
-        update("GPU: sending your reference image and Wan graph", 0.12)
+            if engine == "ltx_2b" else image_to_video_graph(
+                uploaded_name, prompt, duration, f"realmotion/studio_{tag}",
+                width=width, height=height))
+        update("GPU: sending reference image and " + engine + " graph", 0.12)
         job_id = comfy.submit(graph)
         update("GPU: ComfyUI accepted AI generation " + job_id[:8], 0.14)
         raw = workdir / "raw.mp4"
@@ -640,12 +746,13 @@ def render_single_studio_video(
                 update(f"GPU sampling (real steps): {value}/{maximum}",
                        .17 + .52 * min(1., value / maximum))
             elif kind == 'queued':
-                update('GPU: Wan job waiting in ComfyUI queue', .14)
+                update('GPU: ' + engine + ' waiting in ComfyUI queue', .14)
             elif kind == 'running':
-                update('GPU: loading Wan model / processing', .16)
-            elif kind == 'node:10':
+                update('GPU: loading ' + engine + ' model / processing', .16)
+            elif kind == ('node:11' if engine == 'ltx_2b' else 'node:10'):
                 update('GPU: decoding generated video frames', .72)
-            elif kind in ('node:11', 'node:12'):
+            elif kind in (('node:12', 'node:13') if engine == 'ltx_2b'
+                          else ('node:11', 'node:12')):
                 update('GPU: saving AI video', .75)
             elif kind == 'download':
                 update('GPU: downloading completed AI clip', .77)
