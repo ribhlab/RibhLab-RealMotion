@@ -380,6 +380,49 @@ def render_project(project: dict[str, Any], root: Path, update: Any, *, preview:
     return str(output)
 
 
+
+def _process_studio_on_lan(raw: Path, output: Path, seconds: int,
+                           narration: str, update: Any) -> bool:
+    """Optional CPU/voice offload to a trusted second Windows PC.
+
+    Returns False when no LAN worker is configured. If configured but not
+    reachable, fail honestly rather than silently processing on the GPU host.
+    """
+    worker = os.environ.get("REALMOTION_WORKER_URL", "").strip().rstrip("/")
+    if not worker:
+        return False
+    token = os.environ.get("REALMOTION_WORKER_TOKEN", "").strip()
+    if len(token) < 32:
+        raise ComfyError("REALMOTION_WORKER_TOKEN must match the MacBook worker secret")
+    if not worker.startswith("http://") or not worker.endswith(":8787"):
+        raise ComfyError("REALMOTION_WORKER_URL must be http://<MacBook-LAN-IP>:8787")
+    update("Sending real AI clip to MacBook for encoding and voice", 0.79)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with httpx.Client(timeout=httpx.Timeout(900.0, connect=10.0),
+                          follow_redirects=False) as client:
+            with raw.open("rb") as source:
+                with client.stream(
+                    "POST", worker + "/process",
+                    headers={"X-RealMotion-Token": token},
+                    files={"video": ("raw.mp4", source, "video/mp4")},
+                    data={"seconds": str(seconds), "narration": narration.strip()},
+                ) as response:
+                    if response.status_code != 200:
+                        detail = b"".join(response.iter_bytes())[:500].decode("utf-8", errors="replace")
+                        raise ComfyError(
+                            f"MacBook worker refused postprocessing ({response.status_code}): {detail}")
+                    with output.open("wb") as result:
+                        for chunk in response.iter_bytes():
+                            result.write(chunk)
+    except httpx.HTTPError as exc:
+        raise ComfyError(f"Cannot reach MacBook LAN worker at {worker}: {exc}") from exc
+    if not output.is_file() or output.stat().st_size < 1024:
+        raise ComfyError("MacBook worker did not return a valid MP4")
+    update("MacBook finished encoding and Arabic audio", 0.98)
+    return True
+
+
 def render_single_studio_video(
     image: Path, prompt: str, duration: int, output: Path,
     update: Any, *, narration: str = ""
@@ -417,17 +460,18 @@ def render_single_studio_video(
         raw = workdir / "raw.mp4"
         comfy.wait_and_download(job_id, raw)
 
-    update("Encoding MP4", 0.78)
-    normalized = workdir / "video.mp4"
-    normalize_clip(raw, normalized, duration, resolution="720:1280")
+    if not _process_studio_on_lan(raw, output, duration, narration, update):
+        update("Encoding MP4 locally", 0.78)
+        normalized = workdir / "video.mp4"
+        normalize_clip(raw, normalized, duration, resolution="720:1280")
 
-    if narration.strip():
-        update("Creating offline voice narration", 0.87)
-        speech = workdir / "narration.wav"
-        asyncio.run(synthesize_speech(narration.strip(), speech, "ar"))
-        add_speech_to_clip(normalized, speech, output, duration)
-    else:
-        shutil.copyfile(normalized, output)
+        if narration.strip():
+            update("Creating offline voice narration", 0.87)
+            speech = workdir / "narration.wav"
+            asyncio.run(synthesize_speech(narration.strip(), speech, "ar"))
+            add_speech_to_clip(normalized, speech, output, duration)
+        else:
+            shutil.copyfile(normalized, output)
     if not output.is_file() or output.stat().st_size < 1024:
         raise ComfyError("Output MP4 was not produced")
     update("MP4 is ready", 1.0)
