@@ -18,6 +18,8 @@ from typing import Any
 
 import httpx
 
+from stable_motion import choose_output_size, choose_wan_size
+
 FPS = 16
 NEGATIVE = (
     "static still image, frozen pose, poor quality, distorted anatomy, "
@@ -480,7 +482,8 @@ def render_project(project: dict[str, Any], root: Path, update: Any, *, preview:
 
 def _process_studio_on_lan(raw: Path, output: Path, seconds: int,
                            narration: str, update: Any,
-                           cancel_event: threading.Event | None = None) -> bool:
+                           cancel_event: threading.Event | None = None,
+                           resolution: str = "720:1280") -> bool:
     """Offload genuine FFmpeg/TTS work to authenticated MacBook LAN worker.
 
     A sidecar monitor polls the MacBook stage endpoint while the main request
@@ -489,6 +492,8 @@ def _process_studio_on_lan(raw: Path, output: Path, seconds: int,
     worker = os.environ.get("REALMOTION_WORKER_URL", "").strip().rstrip("/")
     if not worker:
         return False
+    if resolution not in ("1280:720", "720:1280", "960:960"):
+        raise ComfyError(f'Unsupported output canvas: {resolution}')
     token = os.environ.get("REALMOTION_WORKER_TOKEN", "").strip()
     if len(token) < 32:
         raise ComfyError('MacBook worker token is missing or too short')
@@ -549,7 +554,7 @@ def _process_studio_on_lan(raw: Path, output: Path, seconds: int,
                         headers=headers,
                         files={'video': ('raw.mp4', source, 'video/mp4')},
                         data={'seconds': str(seconds), 'narration': narration.strip(),
-                              'job_id': worker_id},
+                              'job_id': worker_id, 'resolution': resolution},
                     ) as response:
                         if response.status_code != 200:
                             detail = b''.join(response.iter_bytes())[:800].decode(
@@ -598,10 +603,22 @@ def render_single_studio_video(
     tag = uuid.uuid4().hex[:12]
     workdir = output.parent / f"work_{tag}"
     workdir.mkdir(parents=True, exist_ok=True)
-    width = int(os.getenv("WAN_WIDTH", "288"))
-    height = int(os.getenv("WAN_HEIGHT", "512"))
+    output_size = choose_output_size(image)
+    resolution = f"{output_size[0]}:{output_size[1]}"
+    width, height = choose_wan_size(image)
+    custom_width = os.getenv("WAN_WIDTH")
+    custom_height = os.getenv("WAN_HEIGHT")
+    if bool(custom_width) != bool(custom_height):
+        raise ValueError('Set both WAN_WIDTH and WAN_HEIGHT or neither')
+    if custom_width and custom_height:
+        width, height = int(custom_width), int(custom_height)
     if min(width, height) < 128 or width % 16 or height % 16:
         raise ValueError("WAN_WIDTH and WAN_HEIGHT must be multiples of 16 and >= 128")
+    if abs(width / height - output_size[0] / output_size[1]) > .15:
+        raise ValueError('Wan latent orientation conflicts with the source photo; '
+                         'unset WAN_WIDTH/WAN_HEIGHT for automatic aspect correction')
+    update(f"Photo layout {output_size[0]}x{output_size[1]} | Wan latent "
+           f"{width}x{height} | model {os.getenv('WAN_I2V_MODEL','Wan2.2-TI2V-5B-Q2_K.gguf')}", .02)
 
     if cancel_event is not None and cancel_event.is_set():
         raise GenerationCancelled('Cancelled before starting GPU')
@@ -638,10 +655,10 @@ def render_single_studio_video(
     if cancel_event is not None and cancel_event.is_set():
         raise GenerationCancelled('Cancelled after GPU generation')
     if not _process_studio_on_lan(raw, output, duration, narration, update,
-                                  cancel_event=cancel_event):
+                                  cancel_event=cancel_event, resolution=resolution):
         update("Encoding MP4 locally", 0.78)
         normalized = workdir / "video.mp4"
-        normalize_clip(raw, normalized, duration, resolution="720:1280")
+        normalize_clip(raw, normalized, duration, resolution=resolution)
         if cancel_event is not None and cancel_event.is_set():
             raise GenerationCancelled('Cancelled after local encoding')
         if narration.strip():
@@ -661,3 +678,60 @@ def render_single_studio_video(
         raise ComfyError("Output MP4 was not produced")
     update("MP4 is ready", 1.0)
     return str(output)
+
+
+def render_source_preserving_food(
+    image: Path, duration: int, output: Path, update: Any,
+    *, narration: str = "", cancel_event: threading.Event | None = None
+) -> str:
+    """Visibly labelled 2.5D/steam mode. This does not invoke a diffusion model.
+
+    Preserves image details/landscape aspect. MacBook postprocess receives actual
+    output orientation; it can also synthesize the optional Arabic narration.
+    """
+    from stable_motion import render_stable_food_video, StableMotionCancelled
+
+    if not image.is_file():
+        raise ComfyError('Source reference image missing')
+    if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
+        raise ComfyError('FFmpeg and FFprobe are required')
+    output.parent.mkdir(parents=True, exist_ok=True)
+    width, height = choose_output_size(image)
+    resolution = f"{width}:{height}"
+    raw = output.parent / f"stable_{uuid.uuid4().hex[:12]}.mp4"
+    try:
+        try:
+            render_stable_food_video(image, raw, duration, update,
+                                     cancel_event=cancel_event)
+        except StableMotionCancelled as exc:
+            raise GenerationCancelled(str(exc)) from exc
+        if cancel_event is not None and cancel_event.is_set():
+            raise GenerationCancelled('Stable food animation cancelled')
+        if not _process_studio_on_lan(raw, output, duration, narration, update,
+                                      cancel_event=cancel_event, resolution=resolution):
+            update('Stable food: encoding the native image aspect ratio', .83)
+            normalized = output.parent / f"stable_normalized_{uuid.uuid4().hex[:12]}.mp4"
+            try:
+                normalize_clip(raw, normalized, duration, resolution=resolution)
+                if cancel_event is not None and cancel_event.is_set():
+                    raise GenerationCancelled('Stable food export cancelled')
+                if narration.strip():
+                    update('Creating optional audio for stable food', .92)
+                    wav = output.parent / f"stable_voice_{uuid.uuid4().hex[:12]}.wav"
+                    try:
+                        asyncio.run(synthesize_speech(narration.strip(), wav, 'ar'))
+                        if cancel_event is not None and cancel_event.is_set():
+                            raise GenerationCancelled('Stable food voice cancelled')
+                        add_speech_to_clip(normalized, wav, output, duration)
+                    finally:
+                        wav.unlink(missing_ok=True)
+                else:
+                    shutil.copyfile(normalized, output)
+            finally:
+                normalized.unlink(missing_ok=True)
+        if not output.is_file() or output.stat().st_size < 1024:
+            raise ComfyError('Stable food MP4 was not created')
+        update(f'Stable food MP4 ready ({width}x{height}), source preserved', 1.0)
+        return str(output)
+    finally:
+        raw.unlink(missing_ok=True)
