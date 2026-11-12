@@ -54,7 +54,31 @@
     </div>
 
     <div class="message-line" id="status" role="status" aria-live="polite">كلشي كيتخدم محلياً على حاسوبك؛ الملفات ما كتمشيش لGitHub.</div>
-    <div class="progress hidden" id="progress"><div id="bar"></div></div>
+    <section class="job-dashboard hidden" id="jobDashboard" aria-label="Production progress">
+      <div class="job-heading">
+        <div><strong id="stageTitle">جاري تحضير الفيديو...</strong><small id="elapsed">00:00</small></div>
+        <div class="job-actions"><span id="pct" aria-label="Stage based progress">0%</span>
+          <button type="button" id="cancelGeneration" class="cancel-btn">✕ إلغاء التوليد</button></div>
+      </div>
+      <div class="progress" id="progress" role="progressbar" aria-label="Video generation progress"
+           aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="bar"></div></div>
+      <div class="production-stages" id="productionStages">
+        <span data-phase="gpu">◉ NVIDIA · توليد الحركة</span>
+        <span data-phase="macbook">◉ MacBook · معالجة الفيديو والصوت</span>
+        <span data-phase="finished">◉ MP4 جاهز</span>
+      </div>
+      <div class="progress-explainer">النسبة تقريبية حسب المرحلة؛ خطوات GPU كتتعرض بالعدد الحقيقي ملي ComfyUI يوفرها.</div>
+    </section>
+
+    <details class="debug-panel" id="debugPanel">
+      <summary>⌘ Logs التشخيص · افتح باش تشوف مراحل التوليد والأخطاء</summary>
+      <div class="debug-actions">
+        <span id="workerConnection">MacBook: كنراجع الاتصال...</span>
+        <button id="refreshLogs" class="log-btn" type="button">↻ تحديث</button>
+        <button id="copyLogs" class="log-btn" type="button">⧉ نسخ Logs</button>
+      </div>
+      <pre id="logsText" aria-label="Copyable diagnostic logs" dir="ltr">RealMotion ready. Upload a photo to begin.\n</pre>
+    </details>
   </main>
 
   <div class="composer-wrap">
