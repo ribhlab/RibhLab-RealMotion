@@ -479,50 +479,108 @@ def render_project(project: dict[str, Any], root: Path, update: Any, *, preview:
 
 
 def _process_studio_on_lan(raw: Path, output: Path, seconds: int,
-                           narration: str, update: Any) -> bool:
-    """Optional CPU/voice offload to a trusted second Windows PC.
+                           narration: str, update: Any,
+                           cancel_event: threading.Event | None = None) -> bool:
+    """Offload genuine FFmpeg/TTS work to authenticated MacBook LAN worker.
 
-    Returns False when no LAN worker is configured. If configured but not
-    reachable, fail honestly rather than silently processing on the GPU host.
+    A sidecar monitor polls the MacBook stage endpoint while the main request
+    uploads/downloads MP4; progress is event/stage based, not a fake timer.
     """
     worker = os.environ.get("REALMOTION_WORKER_URL", "").strip().rstrip("/")
     if not worker:
         return False
     token = os.environ.get("REALMOTION_WORKER_TOKEN", "").strip()
     if len(token) < 32:
-        raise ComfyError("REALMOTION_WORKER_TOKEN must match the MacBook worker secret")
-    if not worker.startswith("http://") or not worker.endswith(":8787"):
-        raise ComfyError("REALMOTION_WORKER_URL must be http://<MacBook-LAN-IP>:8787")
-    update("Sending real AI clip to MacBook for encoding and voice", 0.79)
+        raise ComfyError('MacBook worker token is missing or too short')
+    if not worker.startswith('http://') or not worker.endswith(':8787'):
+        raise ComfyError('REALMOTION_WORKER_URL must be http://<MacBook-LAN-IP>:8787')
+    headers = {'X-RealMotion-Token': token}
+    worker_id = str(uuid.uuid4())
+    stop_monitor = threading.Event()
+    note_seen = set()
+    progress_map = {'received': .81, 'encoding': .86, 'voice': .91,
+                    'mixing': .95, 'done': .98, 'failed': .84, 'cancelled': .84}
+
+    def monitor() -> None:
+        # Separate connection; monitor remains responsive while /process runs.
+        cancel_sent = False
+        try:
+            with httpx.Client(timeout=5, follow_redirects=False) as watcher:
+                while not stop_monitor.is_set():
+                    try:
+                        response = watcher.get(worker + '/status/' + worker_id,
+                                               headers=headers)
+                        if response.status_code == 200:
+                            state = response.json()
+                            note = str(state.get('message', 'MacBook working'))
+                            phase = str(state.get('phase', 'received'))
+                            if (phase, note) not in note_seen:
+                                note_seen.add((phase, note))
+                                update('MacBook: ' + note, progress_map.get(phase, .83))
+                        if (cancel_event is not None and cancel_event.is_set()
+                                and not cancel_sent and response.status_code == 200):
+                            cancel_sent = True
+                            watcher.post(worker + '/cancel/' + worker_id, headers=headers)
+                    except (httpx.HTTPError, ValueError, GenerationCancelled):
+                        pass
+                    stop_monitor.wait(1.2)
+        except Exception:
+            pass
+
+    if cancel_event is not None and cancel_event.is_set():
+        raise GenerationCancelled('Cancelled before MacBook processing')
+    update('Checking MacBook worker authentication', .78)
     output.parent.mkdir(parents=True, exist_ok=True)
     try:
         with httpx.Client(timeout=httpx.Timeout(900.0, connect=10.0),
                           follow_redirects=False) as client:
-            with raw.open("rb") as source:
-                with client.stream(
-                    "POST", worker + "/process",
-                    headers={"X-RealMotion-Token": token},
-                    files={"video": ("raw.mp4", source, "video/mp4")},
-                    data={"seconds": str(seconds), "narration": narration.strip()},
-                ) as response:
-                    if response.status_code != 200:
-                        detail = b"".join(response.iter_bytes())[:500].decode("utf-8", errors="replace")
-                        raise ComfyError(
-                            f"MacBook worker refused postprocessing ({response.status_code}): {detail}")
-                    with output.open("wb") as result:
-                        for chunk in response.iter_bytes():
-                            result.write(chunk)
+            health = client.get(worker + '/health', headers=headers, timeout=8)
+            if health.status_code != 200:
+                raise ComfyError(
+                    f'MacBook worker authentication/connection failed ({health.status_code}). '
+                    'Verify worker token locally on NVIDIA and MacBook.')
+            update('MacBook worker authenticated — sending AI video', .79)
+            thread = threading.Thread(target=monitor, daemon=True, name='realm-macbook-monitor')
+            thread.start()
+            try:
+                with raw.open('rb') as source:
+                    with client.stream(
+                        'POST', worker + '/process',
+                        headers=headers,
+                        files={'video': ('raw.mp4', source, 'video/mp4')},
+                        data={'seconds': str(seconds), 'narration': narration.strip(),
+                              'job_id': worker_id},
+                    ) as response:
+                        if response.status_code != 200:
+                            detail = b''.join(response.iter_bytes())[:800].decode(
+                                'utf-8', errors='replace')
+                            if cancel_event is not None and cancel_event.is_set():
+                                raise GenerationCancelled('MacBook job cancelled by user')
+                            raise ComfyError(
+                                f'MacBook failed video/audio processing ({response.status_code}): {detail}')
+                        if cancel_event is not None and cancel_event.is_set():
+                            raise GenerationCancelled('Cancelled before MacBook MP4 download')
+                        update('MacBook finished processing — receiving MP4', .98)
+                        with output.open('wb') as result:
+                            for chunk in response.iter_bytes():
+                                if cancel_event is not None and cancel_event.is_set():
+                                    raise GenerationCancelled('Cancelled during MacBook MP4 transfer')
+                                result.write(chunk)
+            finally:
+                stop_monitor.set()
+                thread.join(timeout=3)
     except httpx.HTTPError as exc:
-        raise ComfyError(f"Cannot reach MacBook LAN worker at {worker}: {exc}") from exc
+        raise ComfyError(f'MacBook worker network error at {worker}: {exc}') from exc
     if not output.is_file() or output.stat().st_size < 1024:
-        raise ComfyError("MacBook worker did not return a valid MP4")
-    update("MacBook finished encoding and Arabic audio", 0.98)
+        raise ComfyError('MacBook worker did not return an MP4')
+    update('MacBook returned final MP4 with audio processing complete', .99)
     return True
 
 
 def render_single_studio_video(
     image: Path, prompt: str, duration: int, output: Path,
-    update: Any, *, narration: str = ""
+    update: Any, *, narration: str = "",
+    cancel_event: threading.Event | None = None
 ) -> str:
     """Single-reference Firefly-style local clip. This is image-to-video, not V2V.
 
@@ -545,6 +603,8 @@ def render_single_studio_video(
     if min(width, height) < 128 or width % 16 or height % 16:
         raise ValueError("WAN_WIDTH and WAN_HEIGHT must be multiples of 16 and >= 128")
 
+    if cancel_event is not None and cancel_event.is_set():
+        raise GenerationCancelled('Cancelled before starting GPU')
     update("Connecting to local NVIDIA / ComfyUI", 0.05)
     with ComfyClient(os.getenv("COMFYUI_URL", "http://127.0.0.1:8188")) as comfy:
         comfy.health()
@@ -552,23 +612,51 @@ def render_single_studio_video(
         graph = image_to_video_graph(
             uploaded_name, prompt, duration, f"realmotion/studio_{tag}",
             width=width, height=height)
-        update("Generating motion from your reference image", 0.14)
+        update("GPU: sending your reference image and Wan graph", 0.12)
         job_id = comfy.submit(graph)
+        update("GPU: ComfyUI accepted AI generation " + job_id[:8], 0.14)
         raw = workdir / "raw.mp4"
-        comfy.wait_and_download(job_id, raw)
 
-    if not _process_studio_on_lan(raw, output, duration, narration, update):
+        def gpu_progress(kind: str, value: int, maximum: int) -> None:
+            if kind == 'sampling' and maximum > 0:
+                update(f"GPU sampling (real steps): {value}/{maximum}",
+                       .17 + .52 * min(1., value / maximum))
+            elif kind == 'queued':
+                update('GPU: Wan job waiting in ComfyUI queue', .14)
+            elif kind == 'running':
+                update('GPU: loading Wan model / processing', .16)
+            elif kind == 'node:10':
+                update('GPU: decoding generated video frames', .72)
+            elif kind in ('node:11', 'node:12'):
+                update('GPU: saving AI video', .75)
+            elif kind == 'download':
+                update('GPU: downloading completed AI clip', .77)
+
+        comfy.wait_and_download(job_id, raw, on_progress=gpu_progress,
+                                cancel_event=cancel_event)
+
+    if cancel_event is not None and cancel_event.is_set():
+        raise GenerationCancelled('Cancelled after GPU generation')
+    if not _process_studio_on_lan(raw, output, duration, narration, update,
+                                  cancel_event=cancel_event):
         update("Encoding MP4 locally", 0.78)
         normalized = workdir / "video.mp4"
         normalize_clip(raw, normalized, duration, resolution="720:1280")
-
+        if cancel_event is not None and cancel_event.is_set():
+            raise GenerationCancelled('Cancelled after local encoding')
         if narration.strip():
             update("Creating offline voice narration", 0.87)
             speech = workdir / "narration.wav"
             asyncio.run(synthesize_speech(narration.strip(), speech, "ar"))
+            if cancel_event is not None and cancel_event.is_set():
+                raise GenerationCancelled('Cancelled after voice synthesis')
+            update("Mixing local voice with MP4", .95)
             add_speech_to_clip(normalized, speech, output, duration)
         else:
             shutil.copyfile(normalized, output)
+    if cancel_event is not None and cancel_event.is_set():
+        output.unlink(missing_ok=True)
+        raise GenerationCancelled('Cancelled before finishing the MP4')
     if not output.is_file() or output.stat().st_size < 1024:
         raise ComfyError("Output MP4 was not produced")
     update("MP4 is ready", 1.0)
