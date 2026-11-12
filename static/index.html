@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#101114">
   <meta name="description" content="RibhLab RealMotion: local image-to-video creative workspace with honest AI and source-preserving video modes.">
   <title>RealMotion Studio — RibhLab</title>
-  <link rel="stylesheet" href="/static/style.css?v=firefly-studio-2">
+  <link rel="stylesheet" href="/static/style.css?v=realm-quality-3">
 </head>
 <body>
 <div class="shell">
@@ -62,6 +62,16 @@
         <p class="field-help" id="cameraHelp">توجيه نصّي للموديل، ماشي تحكم ميكانيكي مضمون.</p>
       </div>
 
+      <div class="field-group" id="steamControls" hidden>
+        <label class="field-label" for="steamStrength"><span class="field-icon">♨</span> قوة البخار</label>
+        <div class="steam-slider-row">
+          <input type="range" id="steamStrength" min="0.1" max="2" step="0.1" value="0.9" aria-label="Steam intensity">
+          <output id="steamStrengthValue" for="steamStrength">0.9×</output>
+        </div>
+        <p class="field-help">ضغط فوق الماكلة فالمعاينة باش تحدد منين يخرج البخار.</p>
+        <button class="steam-reset" id="resetSteam" type="button">↺ رجّع موضع البخار للوسط</button>
+      </div>
+
       <div class="field-group">
         <label class="field-label"><span class="field-icon">▣</span> أبعاد الفيديو</label>
         <div class="aspect-box"><strong>تلقائي حسب الصورة</strong><span id="aspectInfo">أفقي 16:9 أو عمودي 9:16</span></div>
@@ -93,6 +103,7 @@
         </div>
         <div class="preview-panel hidden" id="previewPanel">
           <img id="previewImg" alt="Uploaded reference image"/>
+          <div class="steam-marker hidden" id="steamMarker" title="Steam origin" aria-hidden="true"><span>♨</span></div>
           <div class="preview-meta"><span id="previewKind">FIRST FRAME</span><span id="previewName"></span></div>
           <button id="replace" class="replace-btn" type="button">＋ زيد صورة</button>
         </div>
@@ -147,11 +158,16 @@
         <pre id="logsText" aria-label="Copyable diagnostic logs" dir="ltr">RealMotion Studio ready. Select a reference and generate a clip.</pre>
       </details>
 
+      <section class="history-panel" aria-label="Previously generated videos">
+        <div class="history-heading"><h3>آخر الفيديوهات</h3><button id="refreshHistory" class="log-btn" type="button" aria-label="Refresh saved videos">↻</button></div>
+        <div id="historyItems" class="history-items"><p class="history-empty">كنقلبو على الفيديوهات المحفوظة...</p></div>
+      </section>
+
       <div class="activity-foot"><span class="status-square"></span><p>تشغيل محلي بدون رصيد مدفوع. جودة Wan Q2 على 6GB تجريبية؛ وضع Stable Food للحفاظ على صورة الماكلة.</p></div>
     </aside>
   </div>
   <input id="fileInput" type="file" accept="image/png,image/jpeg,image/webp,video/mp4,video/webm,video/quicktime,video/x-m4v" multiple hidden>
 </div>
-<script src="/static/app.js?v=firefly-studio-2"></script>
+<script src="/static/app.js?v=realm-quality-3"></script>
 </body>
 </html>
