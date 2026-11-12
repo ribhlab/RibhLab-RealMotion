@@ -411,7 +411,7 @@ class StudioRequest(BaseModel):
     prompt: str = Field(min_length=8, max_length=12000)
     seconds: int = Field(default=5, ge=1, le=600)
     with_voice: bool = True
-    render_mode: Literal["wan_ai", "stable_food"] = "wan_ai"
+    render_mode: Literal["wan_ai", "ltx_2b", "stable_food"] = "wan_ai"
     steam_x: float = Field(default=.50, ge=0., le=1.)
     steam_y: float = Field(default=.65, ge=0., le=1.)
     steam_strength: float = Field(default=.85, ge=.1, le=2.)
@@ -592,10 +592,14 @@ def _studio_worker(job_id: str, asset_id: uuid.UUID,
                 cancel_event=_job_cancel.setdefault(job_id, threading.Event()),
                 **config)
         else:
+            if render_mode == "ltx_2b":
+                _job_log(job_id, 'Free local LTX 2B FP8 on NVIDIA; native ComfyUI graph',
+                         progress=2, phase='preparing')
             render_single_studio_video(
                 folder / 'reference.jpg', video_prompt, seconds,
                 out_dir / 'result.mp4', update, narration=voiced_text,
-                cancel_event=_job_cancel.setdefault(job_id, threading.Event()))
+                cancel_event=_job_cancel.setdefault(job_id, threading.Event()),
+                engine=render_mode)
         _save_studio_result(job_id, asset_id, render_mode, seconds)
         _job_finished(job_id, 'done', 'Your MP4 is ready',
                       video_url=f'/api/studio/jobs/{job_id}/video')
@@ -652,8 +656,8 @@ def studio_generate(body: StudioRequest):
     if not (asset / 'reference.jpg').is_file():
         raise HTTPException(404, "Upload a photo or video first")
     long_mode = body.seconds == 600
-    if long_mode and body.render_mode == 'stable_food':
-        raise HTTPException(422, 'Source-preserving food mode is for short clips only')
+    if long_mode and body.render_mode != 'wan_ai':
+        raise HTTPException(422, '10-minute film is supported for Wan only; choose a short clip for LTX or Stable Food')
     ids = list(dict.fromkeys(body.asset_ids or [body.asset_id]))
     if long_mode:
         if body.asset_id not in ids:
@@ -670,7 +674,8 @@ def studio_generate(body: StudioRequest):
             'id': job_id, 'status': 'queued', 'progress': 0, 'phase': 'queued',
             'message': ('120 real AI scenes queued — checkpointed' if long_mode
                         else ('Source-preserving food render queued' if body.render_mode == 'stable_food'
-                              else 'Queued on local GPU')),
+                      else 'Free LTX 2B GPU render queued' if body.render_mode == 'ltx_2b'
+                      else 'Queued on local GPU')),
             'mode': 'longform' if long_mode else 'studio',
             'render_mode': body.render_mode,
             'steam_x': body.steam_x,
@@ -682,6 +687,7 @@ def studio_generate(body: StudioRequest):
         _job_log(job_id,
                  ('Source-preserving food mode: stable image + transparent steam'
                   if body.render_mode == 'stable_food'
+                  else 'LTX 2B FP8: free NVIDIA image-to-video, no cloud' if body.render_mode == 'ltx_2b'
                   else 'Wan AI image-to-video: NVIDIA + optional MacBook processing'),
                  progress=0, phase='queued')
         if long_mode:
