@@ -70,7 +70,7 @@ try {
       }
 
       # Each job owns a DIFFERENT file and .part path: no concurrent writes.
-      & curl.exe --fail --location --retry 6 --retry-delay 3 --continue-at - --output $part $Url
+      & curl.exe --silent --show-error --fail --location --retry 6 --retry-delay 3 --continue-at - --output $part $Url
       if ($LASTEXITCODE -ne 0) {
         throw "curl failed downloading $Name (exit $LASTEXITCODE). Keep $part and re-run to resume."
       }
