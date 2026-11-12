@@ -12,8 +12,48 @@ async function api(url,options={}){
   return body;
 }
 function updateButton(){
-  $('generate').disabled=!state.active||state.busy||!$('prompt').value.trim();
+  const stable=$('renderMode').value==='stable_food';
+  $('generate').disabled=!state.active||state.busy||(!stable&&$('prompt').value.trim().length<8);
 }
+const CAMERA_HINTS={
+  static:'Camera direction: perfectly static locked tripod; no zoom or pan.',
+  push:'Camera direction: very slow gentle dolly forward.',
+  pull:'Camera direction: very slow gentle dolly backward.',
+  left:'Camera direction: slow controlled track towards the left.',
+  right:'Camera direction: slow controlled track towards the right.'
+};
+const FOOD_PROMPT='Photorealistic Moroccan food, subtle natural steam, completely static camera. Preserve the original source photograph and food details.';
+
+function refreshCreativeSettings(){
+  const stable=$('renderMode').value==='stable_food';
+  const longOption=$('duration').querySelector('option[value="600"]');
+  longOption.disabled=stable;
+  if(stable&&$('duration').value==='600')$('duration').value='3';
+  $('cameraMotion').disabled=stable||$('duration').value==='600';
+  if(stable)$('cameraMotion').value='static';
+  $('cameraHelp').textContent=stable?
+    'كاميرا ثابتة للحفاظ على المكونات. حركة البخار فقط.':
+    $('duration').value==='600'?
+      'الفيديو الطويل كيستخدم لقطات متعددة وحركات مختلفة تلقائياً.':
+      'توجيه نصي لـWan؛ النموذج يمكن ما يحترمش الحركة دائماً.';
+  $('modeHelp').textContent=stable?
+    'حفاظ على نفس الصورة الأصلية مع بخار شفاف متحرك. ماشي حركة مولّدة بالذكاء الاصطناعي. مناسب للطاجين والأكل.':
+    'Wan 2.2 5B Q2 كيولد إطارات جديدة على NVIDIA؛ الحركة حقيقية ولكن استقرار المكونات ماشي مضمون على 6GB.';
+  $('modeTitle').textContent=stable?'SOURCE-PRESERVING FOOD':'AI VIDEO GENERATION';
+  $('modeSub').textContent=stable?'CPU + FFmpeg · transparent steam':'Wan 2.2 5B Q2 · NVIDIA 6GB experimental';
+  $('composerMode').textContent=stable?'Stable Food 2.5D':'Wan AI Motion';
+  $('composerDuration').textContent=$('duration').value==='600'?'10min':$('duration').value+'s';
+  $('prompt').placeholder=stable?
+    'اختياري: Soft delicate steam rises from a Moroccan tagine. (التأثير كيحافظ على المصدر)':
+    'مثال: Natural movement in a sunny Moroccan forest. Preserve the person’s face, realistic motion.';
+  $('footnote').textContent=stable?
+    'Stable Food: الصورة الأصلية كتثبت مع بخار خفيف متحرك؛ ما كاينش توليد شخص كيهضر أو يمشي. الصوت اختياري.':
+    $('duration').value==='600'?
+      '10 دقائق = 120 لقطة AI، مع إمكانية استرجاع اللقطات المكتملة. ثقيل جداً على 6GB.':
+      'Wan AI يولّد إطارات جديدة؛ الجودة محدودة بالعتاد والموديل الحالي، ومزامنة الشفاه غير مدعومة.';
+  updateButton();
+}
+
 const STAGE_NAMES={queued:'فالانتظار',preparing:'تحضير الملفات',gpu:'NVIDIA · توليد الحركة',macbook:'MacBook · معالجة الفيديو والصوت',voice:'صناعة الصوت',export:'تصدير MP4',done:'الفيديو واجد',failed:'فشل التوليد',cancelled:'تم الإلغاء',cancelling:'جاري إيقاف التوليد'};
 function showDashboard(){
   $('jobDashboard').classList.remove('hidden');
@@ -111,6 +151,13 @@ function selectAsset(asset){
   $('blank').classList.add('hidden');
   $('result').classList.add('hidden');
   $('previewPanel').classList.remove('hidden');
+  $('previewImg').onload=()=>{
+    const img=$('previewImg');
+    const w=img.naturalWidth,h=img.naturalHeight;
+    if(!w||!h)return;
+    const canvas=w>h*1.12?'1280 × 720 · أفقي':h>w*1.12?'720 × 1280 · عمودي':'960 × 960 · مربع';
+    $('aspectInfo').textContent=canvas;
+  };
   $('previewImg').src=asset.preview_url;
   $('previewName').textContent=asset.name;
   $('previewKind').textContent=asset.kind==='video'?'VIDEO · FIRST-FRAME REFERENCE':'IMAGE REFERENCE';
@@ -210,8 +257,14 @@ async function poll(){
 }
 
 async function generate(){
-  const prompt=$('prompt').value.trim();
-  if(!state.active||prompt.length<8){status('زيد صورة وكتب وصف فيه على الأقل 8 حروف','error');return}
+  const renderMode=$('renderMode').value;
+  const originalPrompt=$('prompt').value.trim();
+  const stable=renderMode==='stable_food';
+  if(!state.active||(!stable&&originalPrompt.length<8)){
+    status('زيد صورة وكتب وصف فيه على الأقل 8 حروف لوضع Wan AI','error');return;
+  }
+  const prompt=stable?(originalPrompt||FOOD_PROMPT):
+    originalPrompt+'\n'+(CAMERA_HINTS[$('cameraMotion').value]||CAMERA_HINTS.static);
   if(state.job){status('كاينة مهمة خدامة. لغِيها أو خليها تكمل قبل بدء مهمة جديدة.','error');return}
   const longMode=Number($('duration').value)===600;
   state.busy=true;updateButton();
@@ -220,13 +273,16 @@ async function generate(){
   $('pct').textContent='0%';
   $('stageTitle').textContent='جاري إرسال الطلب...';
   $('result').classList.add('hidden');
-  status(longMode?'توليد 120 لقطة AI؛ كل لقطة كتتحفظ. تقدر تلغي وتحافظ على اللقطات المكتملة.':'كنبدا توليد الفيديو على NVIDIA...');
+  status(longMode?'توليد 120 لقطة AI؛ كل لقطة كتتحفظ.':
+    stable?'كنحضرو الفيديو مع الحفاظ على الصورة الأصلية وحركة بخار خفيفة...':
+      'كنبدا توليد الحركة الحقيقية على NVIDIA Wan AI...');
   try{
     const job=await api('/api/studio/generate',{
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({asset_id:state.active.id,
         asset_ids:longMode?state.assets.map(asset=>asset.id):[state.active.id],
-        prompt,seconds:Number($('duration').value),with_voice:$('withVoice').checked})
+        prompt,seconds:Number($('duration').value),
+        render_mode:renderMode,with_voice:$('withVoice').checked})
     });
     state.job=job.id;state.lastJob=job.id;state.startedAt=Date.now();state.pollErrors=0;state.logs='';
     localStorage.setItem('realm-active-job',job.id);
@@ -248,12 +304,10 @@ function init(){
   $('addMore').addEventListener('click',openFiles);
   $('fileInput').addEventListener('change',e=>{upload(e.target.files);e.target.value=''});
   $('prompt').addEventListener('input',updateButton);
-  $('duration').addEventListener('change',()=>{
-    const longMode=Number($('duration').value)===600;
-    $('footnote').textContent=longMode?
-      '10 دقائق = 120 لقطة متتابعة من 5 ثواني. التحميل ثقيل على 6GB GPU؛ زيد مراجع متنوعة ونص تعليق طويل بعد «الكلام:». يمكن استئناف اللقطات الناجحة. الفيديو المرفوع غير مرجع من أول لقطة.':
-      'الفيديو المرفوع كيتستعمل من أول صورة فيه كمرجع؛ تعديل الفيديو الكامل ومزامنة الشفاه مازال ما مدعومينش فهاد النسخة.';
-  });
+  $('duration').addEventListener('change',refreshCreativeSettings);
+  $('renderMode').addEventListener('change',refreshCreativeSettings);
+  $('cameraMotion').addEventListener('change',refreshCreativeSettings);
+  refreshCreativeSettings();
   $('generate').addEventListener('click',generate);
   $('cancelGeneration').addEventListener('click',cancelGeneration);
   $('refreshLogs').addEventListener('click',async()=>{await refreshLogs();if(state.job)await poll()});
