@@ -487,7 +487,7 @@ def _studio_worker(job_id: str, asset_id: uuid.UUID,
         render_single_studio_video(
             folder / 'reference.jpg', video_prompt, seconds,
             out_dir / 'result.mp4', update, narration=voiced_text,
-            cancel_event=_job_cancel[job_id])
+            cancel_event=_job_cancel.setdefault(job_id, threading.Event()))
         _job_finished(job_id, 'done', 'Your MP4 is ready',
                       video_url=f'/api/studio/jobs/{job_id}/video')
     except Exception as exc:
@@ -525,7 +525,7 @@ def _studio_long_worker(job_id: str, asset_ids: list[uuid.UUID],
 
         render_ten_minute_film(
             refs, visual, narration, result_dir / 'result.mp4',
-            DATA, update, cancel_event=_job_cancel[job_id])
+            DATA, update, cancel_event=_job_cancel.setdefault(job_id, threading.Event()))
         _job_finished(job_id, 'done', 'Ten-minute MP4 created',
                       video_url=f'/api/studio/jobs/{job_id}/video')
     except Exception as exc:
