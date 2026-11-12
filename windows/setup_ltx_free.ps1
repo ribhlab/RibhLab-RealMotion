@@ -70,9 +70,44 @@ try {
       }
 
       # Each job owns a DIFFERENT file and .part path: no concurrent writes.
-      & curl.exe --silent --show-error --fail --location --retry 6 --retry-delay 3 --continue-at - --output $part $Url
-      if ($LASTEXITCODE -ne 0) {
-        throw "curl failed downloading $Name (exit $LASTEXITCODE). Keep $part and re-run to resume."
+      # Windows curl Schannel can return exit 56 when an HTTPS connection drops
+      # without TLS close_notify. The server supports byte ranges, so start a NEW
+      # curl request with --continue-at - to resume instead of treating it as fatal.
+      # In Windows PowerShell 5.1, native stderr can become a terminating
+      # NativeCommandError when ErrorActionPreference is Stop. Suppress stderr
+      # only for curl itself, then check its real numeric exit code.
+      $recoverable = @(7, 18, 28, 35, 52, 55, 56, 92)
+      $maxAttempts = 120
+      $complete = $false
+      for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+        $oldPreference = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        try {
+          & curl.exe --silent --fail --location --http1.1 --connect-timeout 30 `
+            --speed-limit 1024 --speed-time 90 --continue-at - --output $part $Url 2>$null | Out-Null
+          $exit = $LASTEXITCODE
+        } finally {
+          $ErrorActionPreference = $oldPreference
+        }
+        if ($exit -eq 0) {
+          $complete = $true
+          break
+        }
+        if ($exit -notin $recoverable) {
+          throw "curl exit $exit for $Name (non-retryable). .part saved at $part"
+        }
+        if ($attempt -ge $maxAttempts) { break }
+        # Use an independent, fresh HTTPS connection on every retry. --continue-at
+        # derives the byte offset from the existing .part file on each invocation.
+        $bytes = if (Test-Path -LiteralPath $part) {
+          (Get-Item -LiteralPath $part).Length
+        } else { 0 }
+        Write-Output ("{0}: network interrupted (curl {1}); reconnect {2}/{3}, preserved {4} MB" -f
+          $Name, $exit, $attempt, $maxAttempts, [math]::Round($bytes/1MB,1))
+        Start-Sleep -Seconds ([math]::Min(15, 3 + $attempt))
+      }
+      if (-not $complete) {
+        throw "Connection repeatedly failed for $Name. .part kept at $part; rerun the installer to resume."
       }
 
       $actual = (Get-FileHash -Path $part -Algorithm SHA256).Hash
