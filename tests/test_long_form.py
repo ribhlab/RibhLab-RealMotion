@@ -66,7 +66,7 @@ def test_arabic_voice_marker_is_separated_for_long_film(tmp_path,monkeypatch):
     with server._lock:
         server._jobs[job_id]={'status':'queued','progress':0,'message':''}
     captured=[]
-    def render(refs, visual, narration, output, root, update):
+    def render(refs, visual, narration, output, root, update, cancel_event=None):
         captured.append((visual,narration))
         output.parent.mkdir(parents=True,exist_ok=True)
         output.write_bytes(b'DUMMY FILE FOR UNIT TEST ONLY')
