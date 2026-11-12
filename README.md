@@ -26,6 +26,14 @@ RealMotion now runs video generation **on your own Windows NVIDIA GPU** using lo
 
 ---
 
+## 10-minute local AI film (experimental long-form mode)
+
+Use the Firefly-style studio at `http://127.0.0.1:8000`, upload reference images or videos, write one long prompt and select **10 دقائق · 120 لقطة AI**. The backend performs **120 separate five-second Wan 2.2 Q2 GGUF generations** and joins the real AI-produced clips into a **600-second MP4**. It never labels a still-image slideshow as AI video. Each successful shot is saved to `local_data/longform/`; repeating the request with the same reference files and prompt reuses completed shots, instead of restarting from zero.
+
+You can embed longer Arabic narration in the single prompt after `الكلام:`. A local Piper/Windows TTS voiceover is generated in short segments and mixed over the MP4. **Voice quality in Moroccan Darija and synchronized lips are not guaranteed.** Narration needs enough text to cover ten minutes; a short paragraph will produce a mostly silent film. Video uploads currently contribute **the first frame as a reference**, not their original footage, and scenes may look repetitive if only one reference picture is provided.
+
+**Important hardware limitation:** on GTX 1660 SUPER 6 GB VRAM and 16 GB RAM, 120 AI video generations may take an impractical amount of time and can fail due to VRAM pressure. **Verify one 3-5-second real generation before using this mode.** This is a long-form assembly capability, **not** a guarantee of professional video quality, fast results, or 10-minute single-pass AI inference. Better professional production uses original video footage, a prepared script, and video editing; these hybrid editing workflows are future enhancements.
+
 ## Features
 
 - Modern Arabic (Darija) web interface optimized for desktop and phones.
