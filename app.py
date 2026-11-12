@@ -412,7 +412,7 @@ def _studio_long_worker(job_id: str, asset_ids: list[uuid.UUID],
     try:
         refs = [_studio_folder(asset_id) / 'reference.jpg'
                 for asset_id in asset_ids]
-        speech = re.search(r'(?:الكلام|الحوار|التعليق الصوتي)\\s*[:：]\\s*(.+)',
+        speech = re.search(r'(?:الكلام|الحوار|التعليق الصوتي)\s*[:：]\s*(.+)',
                            prompt, flags=re.IGNORECASE | re.DOTALL)
         visual = prompt[:speech.start()].strip() if speech else prompt
         narration = speech.group(1).strip() if speech and narration_enabled else ''
