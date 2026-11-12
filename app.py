@@ -198,14 +198,40 @@ def index():
 @app.get('/api/health')
 def health():
     from studio import ComfyClient
+    import httpx
+
     url = os.environ.get('COMFYUI_URL', 'http://127.0.0.1:8188')
+    gpu = 'offline'
+    devices = []
     try:
         with ComfyClient(url) as comfy:
             result = comfy.health()
-        devices = result.get('devices') or []
-        return {'server': 'ok', 'mode': 'local', 'comfyui': 'connected', 'devices': [{'name': (d.get('name') or d.get('device_name') or 'GPU'), 'vram_gb': round((d.get('vram_total') or 0) / (1024 ** 3), 1)} for d in devices]}
-    except Exception:
-        return {'server': 'ok', 'mode': 'local', 'comfyui': 'offline', 'devices': []}
+        gpu = 'connected'
+        devices = [
+            {'name': d.get('name') or d.get('device_name') or 'GPU',
+             'vram_gb': round((d.get('vram_total') or 0) / (1024**3), 1)}
+            for d in result.get('devices') or []
+        ]
+    except (Exception):
+        pass
+    worker_url = os.environ.get('REALMOTION_WORKER_URL', '').strip().rstrip('/')
+    token = os.environ.get('REALMOTION_WORKER_TOKEN', '').strip()
+    worker = 'not_configured'
+    if worker_url:
+        if len(token) < 32:
+            worker = 'token_missing'
+        else:
+            try:
+                r = httpx.get(worker_url + '/health',
+                              headers={'X-RealMotion-Token': token},
+                              timeout=3, follow_redirects=False)
+                worker = ('connected' if r.status_code == 200
+                          else 'authentication_failed' if r.status_code in (401, 403)
+                          else f'http_{r.status_code}')
+            except httpx.HTTPError:
+                worker = 'unreachable'
+    return {'server': 'ok', 'mode': 'local', 'comfyui': gpu,
+            'devices': devices, 'macbook': worker}
 
 
 @app.post('/api/projects', status_code=201)
