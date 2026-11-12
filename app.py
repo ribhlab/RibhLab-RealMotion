@@ -291,9 +291,17 @@ STUDIO_VIDEO_EXTENSIONS = {".mp4", ".webm", ".mov", ".m4v"}
 
 class StudioRequest(BaseModel):
     asset_id: uuid.UUID
-    prompt: str = Field(min_length=8, max_length=1800)
-    seconds: int = Field(default=5, ge=1, le=10)
+    asset_ids: list[uuid.UUID] = Field(default_factory=list, max_length=40)
+    prompt: str = Field(min_length=8, max_length=12000)
+    seconds: int = Field(default=5, ge=1, le=600)
     with_voice: bool = True
+
+    @field_validator('seconds')
+    @classmethod
+    def studio_duration_supported(cls, value: int) -> int:
+        if value not in (*range(1, 11), 600):
+            raise ValueError('Choose 1–10 seconds or the 10-minute film mode')
+        return value
 
 
 def _studio_folder(asset_id: uuid.UUID) -> Path:
@@ -394,20 +402,69 @@ def _studio_worker(job_id: str, asset_id: uuid.UUID,
             _jobs[job_id].update(status='failed', message=str(exc)[:1500])
 
 
+def _studio_long_worker(job_id: str, asset_ids: list[uuid.UUID],
+                        prompt: str, narration_enabled: bool):
+    import re
+    from long_form import render_ten_minute_film
+
+    with _lock:
+        _jobs[job_id].update(status='running', message='Preparing ten-minute AI film')
+    try:
+        refs = [_studio_folder(asset_id) / 'reference.jpg'
+                for asset_id in asset_ids]
+        speech = re.search(r'(?:الكلام|الحوار|التعليق الصوتي)\\s*[:：]\\s*(.+)',
+                           prompt, flags=re.IGNORECASE | re.DOTALL)
+        visual = prompt[:speech.start()].strip() if speech else prompt
+        narration = speech.group(1).strip() if speech and narration_enabled else ''
+        if len(visual) < 8:
+            raise ValueError('Please describe the visual style and scenes before the narration')
+        result_dir = DATA / 'studio_results' / job_id
+
+        def update(message, fraction):
+            with _lock:
+                _jobs[job_id].update(message=message, progress=round(100*fraction, 1))
+
+        render_ten_minute_film(
+            refs, visual, narration, result_dir / 'result.mp4',
+            DATA, update)
+        with _lock:
+            _jobs[job_id].update(status='done', progress=100,
+                                 message='Ten-minute MP4 created',
+                                 video_url=f'/api/studio/jobs/{job_id}/video')
+    except Exception as exc:
+        with _lock:
+            _jobs[job_id].update(status='failed', message=str(exc)[:1500])
+
+
 @app.post('/api/studio/generate', status_code=202)
 def studio_generate(body: StudioRequest):
     asset = _studio_folder(body.asset_id)
     if not (asset / 'reference.jpg').is_file():
         raise HTTPException(404, "Upload a photo or video first")
+    long_mode = body.seconds == 600
+    ids = list(dict.fromkeys(body.asset_ids or [body.asset_id]))
+    if long_mode:
+        if body.asset_id not in ids:
+            ids.insert(0, body.asset_id)
+        if len(ids) > 40:
+            raise HTTPException(422, 'Use no more than 40 reference files')
+        if not all((_studio_folder(key) / 'reference.jpg').is_file() for key in ids):
+            raise HTTPException(422, 'A reference image or video was not found')
     with _lock:
         if any(j['status'] in ('queued', 'running') for j in _jobs.values()):
             raise HTTPException(409, 'Another generation is still running')
         job_id = str(uuid.uuid4())
         _jobs[job_id] = {
             'id': job_id, 'status': 'queued', 'progress': 0,
-            'message': 'Queued on local GPU', 'mode': 'studio'}
-        executor.submit(_studio_worker, job_id, body.asset_id, body.prompt.strip(),
-                        body.seconds, body.prompt.strip() if body.with_voice else '')
+            'message': ('120 real AI scenes queued — checkpointed'
+                        if long_mode else 'Queued on local GPU'),
+            'mode': 'longform' if long_mode else 'studio'}
+        if long_mode:
+            executor.submit(_studio_long_worker, job_id, ids, body.prompt.strip(),
+                            body.with_voice)
+        else:
+            executor.submit(_studio_worker, job_id, body.asset_id, body.prompt.strip(),
+                            body.seconds, body.prompt.strip() if body.with_voice else '')
         return _jobs[job_id].copy()
 
 
