@@ -208,3 +208,57 @@ English-only Windows SAPI installation may otherwise mispronounce Arabic. This
 lightweight workflow overlays a soundtrack and **does not lip-sync mouth
 movements**, even if the prompt asks for lip synchronization.
 
+
+
+## RealMotion Studio Pro — new three-pane interface and quality modes
+
+This UI uses a **Firefly-inspired creative-workbench structure**, not Adobe branding
+or any representation that Adobe's cloud model is used. The right-side inspector
+shows real MacBook status, cancellation, progress and copyable logs. The main
+canvas previews the entire reference image with `object-fit: contain`. The
+settings pane offers real, wired controls:
+
+- **Wan 2.2 AI Motion:** actual image-to-video inference on NVIDIA. The
+  current Q2 GGUF is designed for 6 GB experimental use; it will not match the
+  quality or compute budget of Adobe Firefly cloud video generation. Camera
+  presets are *text hints* and do not guarantee exact camera movement.
+- **Stable Food — source preserving:** transparent procedural steam over
+  the original image, rendered using Pillow/FFmpeg on the local computer. It
+  keeps tagine ingredients stable because it does not regenerate them. It is
+  **not neural image-to-video**; walking, speaking, physical interactions and
+  real lip-sync are not provided by this mode.
+- Automatic **landscape 1280x720, portrait 720x1280 or square 960x960**
+  finishing. Wan uses lower resolution latents matching the source orientation:
+  landscape 512x288, portrait 288x512, square 384x384. Upscaling improves
+  container resolution, **not** the original AI model's real details.
+- Camera direction can be used with Wan as a prompt modifier. Disabled in
+  Stable Food mode (it deliberately keeps the shot fixed).
+- 3/5/8-second clips, optional voice soundtrack, 10-minute experimental
+  multi-shot AI mode (first reference sets the output orientation).
+
+The MacBook must be updated too because its processing endpoint now accepts
+`resolution` to finish landscape/square videos without forcing 720x1280.
+Stop the previous server before updating to avoid port 8787 conflicts.
+
+### One-time upgrade from both Windows computers
+
+First update/restart the MacBook worker (its personal secret file remains
+unchanged), then update/restart the NVIDIA host:
+
+```powershell
+# MacBook, after Ctrl+C in its worker window:
+git -C "C:\Users\ram\RibhLab-RealMotion" pull --ff-only origin main
+& 'C:\Users\ram\RibhLab-RealMotion\Start-Remote-Worker.bat'
+```
+
+```powershell
+# NVIDIA host, after stopping the old main app window:
+git -C "C:\AI\RibhLab-RealMotion" pull --ff-only origin main
+# Configure REALMOTION_WORKER_URL and REALMOTION_WORKER_TOKEN in this session.
+& 'C:\AI\RibhLab-RealMotion\Start-RealMotion.bat'
+```
+
+Hard-refresh Chrome at http://127.0.0.1:8000 (Ctrl+Shift+R) to load
+`firefly-studio-2` UI assets. Choose Stable Food for the tagine clip and
+Wan AI for facial or body motion. Never paste the MacBook token into chat/logs.
+
