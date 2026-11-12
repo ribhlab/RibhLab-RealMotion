@@ -412,6 +412,9 @@ class StudioRequest(BaseModel):
     seconds: int = Field(default=5, ge=1, le=600)
     with_voice: bool = True
     render_mode: Literal["wan_ai", "stable_food"] = "wan_ai"
+    steam_x: float = Field(default=.50, ge=0., le=1.)
+    steam_y: float = Field(default=.65, ge=0., le=1.)
+    steam_strength: float = Field(default=.85, ge=.1, le=2.)
 
     @field_validator('seconds')
     @classmethod
@@ -423,6 +426,69 @@ class StudioRequest(BaseModel):
 
 def _studio_folder(asset_id: uuid.UUID) -> Path:
     return DATA / "studio_assets" / str(asset_id)
+
+
+def _save_studio_result(job_id: str, reference_id: uuid.UUID,
+                        render_mode: str, seconds: int) -> None:
+    """Persist minimal job metadata so successful videos survive app restarts."""
+    result_dir = DATA / 'studio_results' / job_id
+    video = result_dir / 'result.mp4'
+    if not video.is_file():
+        raise RuntimeError('Cannot record a completed Studio job without result.mp4')
+    metadata = {
+        'id': job_id,
+        'asset_id': str(reference_id),
+        'render_mode': render_mode,
+        'seconds': seconds,
+        'saved_at': datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        (result_dir / 'result_meta.json').write_text(
+            json.dumps(metadata, ensure_ascii=False), encoding='utf-8')
+    except OSError as exc:
+        _job_log(job_id, f'Warning: could not save history metadata: {exc}')
+
+
+@app.get('/api/studio/history')
+def studio_history():
+    """Return recently produced local MP4 files, including previous launches."""
+    folder = DATA / 'studio_results'
+    if not folder.is_dir():
+        return {'items': []}
+    found = []
+    for video in folder.glob('*/result.mp4'):
+        if not video.is_file() or video.stat().st_size < 1024:
+            continue
+        try:
+            job_id = str(uuid.UUID(video.parent.name))
+        except ValueError:
+            continue
+        meta_file = video.parent / 'result_meta.json'
+        meta = {}
+        if meta_file.is_file():
+            try:
+                meta = json.loads(meta_file.read_text(encoding='utf-8'))
+            except (OSError, ValueError, TypeError):
+                pass
+        item = {
+            'id': job_id,
+            'video_url': f'/api/studio/jobs/{job_id}/video',
+            'render_mode': (meta.get('render_mode') if meta.get('render_mode')
+                            in ('wan_ai', 'stable_food', 'longform') else 'unknown'),
+            'seconds': meta.get('seconds'),
+            'created_at': meta.get('saved_at'),
+            'size_mb': round(video.stat().st_size / (1024 * 1024), 2),
+            '_sort': video.stat().st_mtime,
+        }
+        try:
+            reference_id = uuid.UUID(str(meta.get('asset_id', '')))
+            if (_studio_folder(reference_id) / 'reference.jpg').is_file():
+                item['preview_url'] = f'/api/studio/assets/{reference_id}/preview'
+        except ValueError:
+            pass
+        found.append(item)
+    found.sort(key=lambda item: item.pop('_sort'), reverse=True)
+    return {'items': found[:16]}
 
 
 @app.post('/api/studio/assets', status_code=201)
@@ -516,15 +582,21 @@ def _studio_worker(job_id: str, asset_id: uuid.UUID,
         if render_mode == 'stable_food':
             _job_log(job_id, 'Source-preserving 2.5D food mode; no diffusion or scene regeneration',
                      progress=2, phase='preparing')
+            with _lock:
+                config = {k: _jobs[job_id].get(k) for k in
+                          ('steam_x', 'steam_y', 'steam_strength')}
+            config = {k: v for k, v in config.items() if v is not None}
             render_source_preserving_food(
                 folder / 'reference.jpg', seconds,
                 out_dir / 'result.mp4', update, narration=voiced_text,
-                cancel_event=_job_cancel.setdefault(job_id, threading.Event()))
+                cancel_event=_job_cancel.setdefault(job_id, threading.Event()),
+                **config)
         else:
             render_single_studio_video(
                 folder / 'reference.jpg', video_prompt, seconds,
                 out_dir / 'result.mp4', update, narration=voiced_text,
                 cancel_event=_job_cancel.setdefault(job_id, threading.Event()))
+        _save_studio_result(job_id, asset_id, render_mode, seconds)
         _job_finished(job_id, 'done', 'Your MP4 is ready',
                       video_url=f'/api/studio/jobs/{job_id}/video')
     except Exception as exc:
@@ -563,6 +635,7 @@ def _studio_long_worker(job_id: str, asset_ids: list[uuid.UUID],
         render_ten_minute_film(
             refs, visual, narration, result_dir / 'result.mp4',
             DATA, update, cancel_event=_job_cancel.setdefault(job_id, threading.Event()))
+        _save_studio_result(job_id, asset_ids[0], 'longform', 600)
         _job_finished(job_id, 'done', 'Ten-minute MP4 created',
                       video_url=f'/api/studio/jobs/{job_id}/video')
     except Exception as exc:
@@ -600,6 +673,9 @@ def studio_generate(body: StudioRequest):
                               else 'Queued on local GPU')),
             'mode': 'longform' if long_mode else 'studio',
             'render_mode': body.render_mode,
+            'steam_x': body.steam_x,
+            'steam_y': body.steam_y,
+            'steam_strength': body.steam_strength,
             'created_at': datetime.now(timezone.utc).isoformat()}
         _job_cancel[job_id] = threading.Event()
         _job_logs[job_id] = []
