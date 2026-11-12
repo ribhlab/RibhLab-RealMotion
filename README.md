@@ -6,6 +6,18 @@ RealMotion is **not** a slideshow maker. Every shot is submitted to actual video
 
 > **Status: development MVP (v0.1).** The UI, upload and storyboard API, Wan 2.2 GGUF (Q2) graph builders, ComfyUI queueing/download, optional voice generation, MP4 assembly and unit tests are implemented. The complete AI rendering pipeline has **not been executed end-to-end on a model-loaded GPU** in this environment. Face identity, accurate Darija lip-sync and prompt adherence depend on model quality and are **not guaranteed**. We deliberately do not claim otherwise.
 
+## 🖥️ Two-Windows-PC LAN mode (optional)
+
+For a NVIDIA GTX 1660 SUPER PC plus an Intel MacBook running Windows, the
+NVIDIA host generates Wan image-to-video motion while the MacBook can perform
+FFmpeg output encoding and optional Arabic voiceover. Run
+`Start-Remote-Worker.bat` on the MacBook after installing Python and FFmpeg,
+then configure `REALMOTION_WORKER_URL` and `REALMOTION_WORKER_TOKEN` on
+the NVIDIA computer. See [Windows LAN setup](WINDOWS_LOCAL.md#split-realmotion-between-two-windows-computers-macbook-boot-camp--nvidia-pc).
+This supports only the short Firefly-style Studio generation path for now.
+**It does not pool VRAM or run CUDA on the Radeon 560X**. GPU rendering itself
+has not been end-to-end validated on the user's machines.
+
 ## ⚡ Local NVIDIA mode — default (no paid API)
 
 RealMotion now runs video generation **on your own Windows NVIDIA GPU** using local ComfyUI and local Wan 2.2 model files. GitHub and GitHub Pages hold the source and the download instructions only; they do not host an inference service.
