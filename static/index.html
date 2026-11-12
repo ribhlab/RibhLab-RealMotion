@@ -1,103 +1,157 @@
 <!doctype html>
 <html lang="ar" dir="rtl">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#0b0c12">
-<title>RibhLab RealMotion — AI Creative Studio</title>
-<link rel="stylesheet" href="/static/style.css">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101114">
+  <meta name="description" content="RibhLab RealMotion: local image-to-video creative workspace with honest AI and source-preserving video modes.">
+  <title>RealMotion Studio — RibhLab</title>
+  <link rel="stylesheet" href="/static/style.css?v=firefly-studio-2">
 </head>
 <body>
 <div class="shell">
   <header class="topbar">
-    <a class="brand" href="/" aria-label="RibhLab RealMotion home">
-      <span class="mark">✦</span>
-      <span><b>RibhLab <span>RealMotion</span></b><small>CREATIVE AI STUDIO</small></span>
+    <a class="brand" href="/" aria-label="RibhLab RealMotion">
+      <span class="mark" aria-hidden="true">✦</span>
+      <span><b>RibhLab <em>RealMotion</em></b><small>CREATIVE VIDEO STUDIO</small></span>
     </a>
+    <div class="breadcrumb" aria-hidden="true"><span>الاستوديو</span><span class="bread-divider">/</span><strong>صورة إلى فيديو</strong></div>
     <div class="top-actions">
-      <span class="engine"><span class="engine-dot" id="led"></span><span id="connectivity">كنفحص ComfyUI...</span></span>
-      <span class="local-pill">⌁ LOCAL GPU</span>
+      <span class="engine"><span class="engine-dot" id="led"></span><span id="connectivity">كنفحص NVIDIA...</span></span>
+      <span class="local-pill">LOCAL PRODUCTION</span>
     </div>
   </header>
 
-  <main class="workspace">
-    <section class="titleline">
-      <div><div class="eyebrow">CREATE / VIDEO</div><h1>حوّل فكرتك لفيديو <span>بالذكاء الاصطناعي</span></h1></div>
-      <p>زيد صورة أو فيديو، وصف الحركة اللي بغيتي، وخلي RealMotion يولّد الفيديو على حاسوبك.</p>
-    </section>
-
-    <section class="stage" id="stage" aria-label="Visual preview and upload area">
-      <div class="blank-state" id="blank">
-        <div class="upload-art"><span>▧</span><span>▶</span></div>
-        <h2>بدا بصورة أو فيديو</h2>
-        <p>جرّ الملفات هنا أو اختارهم من الحاسوب</p>
-        <button class="choose-btn" id="chooseMain" type="button">＋ زيد صور أو فيديوهات</button>
-        <div class="file-hint">PNG · JPG · WEBP · MP4 · MOV · WEBM · حتى 100 MB</div>
+  <div class="workbench">
+    <aside class="control-pane" aria-label="Video generation settings">
+      <div class="pane-heading">
+        <div class="pane-eyebrow">CREATION SETTINGS</div>
+        <h2>إعدادات التوليد</h2>
+        <p>اختار طريقة مناسبة للمشهد، ومن بعد زيد الصورة والبرومبت.</p>
       </div>
 
-      <div class="preview-panel hidden" id="previewPanel">
-        <img id="previewImg" alt="Selected media reference">
-        <div class="preview-meta"><span id="previewKind">IMAGE REFERENCE</span><span id="previewName"></span></div>
-        <button id="replace" class="replace-btn" type="button" title="Add more files">＋ زيد ملف</button>
+      <div class="field-group">
+        <label class="field-label" for="renderMode"><span class="field-icon">◈</span> المحرك</label>
+        <select class="field-select" id="renderMode">
+          <option value="wan_ai">Wan 2.2 · AI Motion</option>
+          <option value="stable_food">Stable Food · الحفاظ على الصورة</option>
+        </select>
+        <p class="field-help" id="modeHelp">توليد حركة جديدة فعلياً على NVIDIA. جودة Wan Q2 تجريبية وقد تظهر تشوهات.</p>
+        <div class="engine-card" id="engineCard"><span class="engine-symbol">◉</span><div><strong id="modeTitle">AI VIDEO GENERATION</strong><small id="modeSub">Wan GGUF · CUDA · 6GB experimental</small></div></div>
       </div>
 
-      <div class="result-panel hidden" id="result">
-        <video id="player" playsinline controls preload="metadata"></video>
-        <div class="result-footer"><span>✓ الفيديو ديالك واجد</span><a id="download" class="download-btn" href="#" download="RibhLab-RealMotion.mp4">↓ تحميل MP4</a></div>
+      <div class="field-group">
+        <label class="field-label" for="duration"><span class="field-icon">◷</span> المدة</label>
+        <select class="field-select" id="duration" aria-label="Video duration">
+          <option value="3" selected>3 ثواني · اختبار سريع</option>
+          <option value="5">5 ثواني</option>
+          <option value="8">8 ثواني</option>
+          <option value="600">10 دقائق · 120 لقطة AI</option>
+        </select>
       </div>
-    </section>
 
-    <div class="media-strip hidden" id="mediaStrip" aria-label="Your uploaded files">
-      <div class="media-strip-label">ملفاتك <span id="mediaCount">0</span></div>
-      <div id="mediaItems" class="media-items"></div>
-      <button type="button" class="small-add" id="addMore" title="Add files">＋</button>
-    </div>
-
-    <div class="message-line" id="status" role="status" aria-live="polite">كلشي كيتخدم محلياً على حاسوبك؛ الملفات ما كتمشيش لGitHub.</div>
-    <section class="job-dashboard hidden" id="jobDashboard" aria-label="Production progress">
-      <div class="job-heading">
-        <div><strong id="stageTitle">جاري تحضير الفيديو...</strong><small id="elapsed">00:00</small></div>
-        <div class="job-actions"><span id="pct" aria-label="Stage based progress">0%</span>
-          <button type="button" id="cancelGeneration" class="cancel-btn">✕ إلغاء التوليد</button></div>
+      <div class="field-group">
+        <label class="field-label" for="cameraMotion"><span class="field-icon">⊙</span> حركة الكاميرا</label>
+        <select class="field-select" id="cameraMotion">
+          <option value="static">كاميرا ثابتة</option>
+          <option value="push">تقريب بطيء</option>
+          <option value="pull">ابتعاد بطيء</option>
+          <option value="left">تحريك لليسار</option>
+          <option value="right">تحريك لليمين</option>
+        </select>
+        <p class="field-help" id="cameraHelp">توجيه نصّي للموديل، ماشي تحكم ميكانيكي مضمون.</p>
       </div>
-      <div class="progress" id="progress" role="progressbar" aria-label="Video generation progress"
-           aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="bar"></div></div>
-      <div class="production-stages" id="productionStages">
-        <span data-phase="gpu">◉ NVIDIA · توليد الحركة</span>
-        <span data-phase="macbook">◉ MacBook · معالجة الفيديو والصوت</span>
-        <span data-phase="finished">◉ MP4 جاهز</span>
-      </div>
-      <div class="progress-explainer">النسبة تقريبية حسب المرحلة؛ خطوات GPU كتتعرض بالعدد الحقيقي ملي ComfyUI يوفرها.</div>
-    </section>
 
-    <details class="debug-panel" id="debugPanel">
-      <summary>⌘ Logs التشخيص · افتح باش تشوف مراحل التوليد والأخطاء</summary>
-      <div class="debug-actions">
-        <span id="workerConnection">MacBook: كنراجع الاتصال...</span>
-        <button id="refreshLogs" class="log-btn" type="button">↻ تحديث</button>
-        <button id="copyLogs" class="log-btn" type="button">⧉ نسخ Logs</button>
+      <div class="field-group">
+        <label class="field-label"><span class="field-icon">▣</span> أبعاد الفيديو</label>
+        <div class="aspect-box"><strong>تلقائي حسب الصورة</strong><span id="aspectInfo">أفقي 16:9 أو عمودي 9:16</span></div>
+        <p class="field-help">ما كنفرضوش صورة عمودية على صورة أفقية.</p>
       </div>
-      <pre id="logsText" aria-label="Copyable diagnostic logs" dir="ltr">RealMotion ready. Upload a photo to begin.\n</pre>
-    </details>
-  </main>
 
-  <div class="composer-wrap">
-    <div class="composer">
-      <label class="prompt-label" for="prompt">شنو بغيتي تصاوب؟</label>
-      <textarea id="prompt" rows="2" maxlength="12000" placeholder="مثال: طفل كيسوق سيارة صفراء والكاميرا كتتبع الحركة بطريقة سينمائية. الكلام: يلا صحابي، نبداو السباق!"></textarea>
-      <div class="composer-tools">
-        <div class="settings">
-          <label class="setting duration-setting" for="duration">◷ <select id="duration" aria-label="Video duration"><option value="3">3 ثواني</option><option value="5" selected>5 ثواني</option><option value="8">8 ثواني</option><option value="600">10 دقائق · 120 لقطة AI</option></select></label>
-          <label class="setting audio-setting"><input type="checkbox" id="withVoice" checked><span>◖)) صوت</span></label>
-          <span class="hint-inline">باش الشخصية تهضر، زيد فالبرومبت: «الكلام: ...»</span>
+      <div class="field-group">
+        <label class="toggle-line" for="withVoice"><span class="toggle-copy"><strong>تعليق صوتي محلي</strong><small>الكلام: نص التعليق</small></span><input type="checkbox" id="withVoice"><span class="toggle-ui"></span></label>
+        <p class="field-help">الصوت كيتصاوب ويتضاف للفيديو؛ مزامنة الشفاه مازال ما مدعومة.</p>
+      </div>
+
+      <div class="truth-card"><span>ⓘ</span><div><strong>الجودة الحقيقية</strong><p>واجهة بإحساس استوديو احترافي، ولكن النتيجة كتتحدد بالموديل والعتاد. 6GB VRAM ما كتساويش موارد Adobe Firefly السحابية.</p></div></div>
+    </aside>
+
+    <main class="workspace">
+      <div class="canvas-heading">
+        <div><span class="pane-eyebrow">CREATE / VIDEO / FIRST FRAME</span><h1>حوّل الصورة لفيديو</h1><p>اضبط الحركة، جرّب، قارن النتيجة وحمّل MP4.</p></div>
+        <span class="canvas-tag">SOURCE FRAME → MOTION</span>
+      </div>
+
+      <section class="stage" id="stage" aria-label="First-frame preview and upload area">
+        <div class="stage-chrome"><span class="stage-chrome-label">PREVIEW</span><span class="stage-chrome-pill">FIT · NO CROP</span></div>
+        <div class="blank-state" id="blank">
+          <div class="upload-art" aria-hidden="true"><span>▧</span><span>✦</span></div>
+          <h2>بدا من صورة قوية</h2>
+          <p>جرّ صورة أو فيديو لهنا، أو اختار ملف من الحاسوب</p>
+          <button class="choose-btn" id="chooseMain" type="button">＋ أضف الصورة المرجعية</button>
+          <div class="file-hint">JPG · PNG · WEBP · MP4 · MOV · WEBM · أقصى حد 100 MB</div>
         </div>
-        <button class="generate-btn" type="button" id="generate" disabled><span>✦</span> Generate <span class="chevron">←</span></button>
+        <div class="preview-panel hidden" id="previewPanel">
+          <img id="previewImg" alt="Uploaded reference image"/>
+          <div class="preview-meta"><span id="previewKind">FIRST FRAME</span><span id="previewName"></span></div>
+          <button id="replace" class="replace-btn" type="button">＋ زيد صورة</button>
+        </div>
+        <div class="result-panel hidden" id="result">
+          <video id="player" playsinline controls preload="metadata"></video>
+          <div class="result-footer"><span>✓ الفيديو واجد · تقدر تعاينو</span><a id="download" class="download-btn" href="#" download="RibhLab-RealMotion.mp4">↓ تحميل MP4</a></div>
+        </div>
+      </section>
+
+      <div class="media-strip hidden" id="mediaStrip" aria-label="Uploaded first-frame assets">
+        <div class="media-strip-label">المراجع <span id="mediaCount">0</span></div>
+        <div class="media-items" id="mediaItems"></div>
+        <button type="button" class="small-add" id="addMore" title="Add reference image">＋</button>
       </div>
-    </div>
-    <div class="footnote" id="footnote">الفيديو المرفوع كيتستعمل من أول صورة فيه كمرجع؛ تعديل الفيديو الكامل ومزامنة الشفاه مازال ما مدعومينش فهاد النسخة.</div>
+
+      <div class="message-line" id="status" role="status" aria-live="polite">جاهز · الصور والفيديوهات كتتعالج محلياً وما كترفعش لـGitHub.</div>
+
+      <section class="composer-wrap" aria-label="Video prompt">
+        <div class="composer">
+          <label class="prompt-label" for="prompt"><span class="prompt-spark">✦</span> وصف المشهد</label>
+          <textarea id="prompt" rows="3" maxlength="12000" placeholder="مثال: Soft steam gently rises from a Moroccan tagine, static camera, natural golden light."></textarea>
+          <div class="composer-tools">
+            <div class="settings"><span class="setting"><span>◉</span><span id="composerMode">Wan AI Motion</span></span><span class="setting"><span>◷</span><span id="composerDuration">3s</span></span></div>
+            <button class="generate-btn" type="button" id="generate" disabled><span>✦</span> توليد الفيديو <span class="chevron">←</span></button>
+          </div>
+        </div>
+        <p class="footnote" id="footnote">الفيديو المرفوع كيتستخدم من أول إطار فقط. المصدر محفوظ محلياً. الرفع ما كيضمنش lip-sync.</p>
+      </section>
+    </main>
+
+    <aside class="activity-pane" aria-label="Production monitor and logs">
+      <div class="pane-heading"><div class="pane-eyebrow">PRODUCTION MONITOR</div><h2>المراقبة</h2><p>تابع NVIDIA وMacBook وشوف أسباب الأخطاء.</p></div>
+      <div class="hardware-card"><div class="hw-dot"></div><div><strong>NVIDIA · AI Engine</strong><small>ComfyUI / Wan 2.2</small></div></div>
+      <div class="hardware-card"><div class="hw-dot blue"></div><div><strong>MacBook · Worker</strong><small id="workerConnection">كنراجع الاتصال...</small></div></div>
+
+      <section class="job-dashboard hidden" id="jobDashboard" aria-label="Production progress">
+        <div class="job-heading"><strong id="stageTitle">جاري تحضير الفيديو...</strong><small id="elapsed">00:00</small></div>
+        <div class="job-count"><span id="pct">0%</span><span>تقدم المرحلة التقديري</span></div>
+        <div class="progress" id="progress" role="progressbar" aria-label="Video generation progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="bar"></div></div>
+        <div class="production-stages" id="productionStages">
+          <span data-phase="gpu">1 · NVIDIA · توليد الحركة</span>
+          <span data-phase="macbook">2 · MacBook · الفيديو والصوت</span>
+          <span data-phase="finished">3 · MP4 جاهز</span>
+        </div>
+        <button type="button" id="cancelGeneration" class="cancel-btn">✕ إلغاء التوليد</button>
+        <p class="progress-explainer">النسبة حسب المراحل. عدد خطوات GPU الحقيقي كيبان إلا ComfyUI رسلو.</p>
+      </section>
+
+      <details class="debug-panel" id="debugPanel" open>
+        <summary>⌘ Logs · سجل التشخيص</summary>
+        <div class="debug-actions"><button id="refreshLogs" class="log-btn" type="button">↻ تحديث</button><button id="copyLogs" class="log-btn" type="button">⧉ نسخ Logs</button></div>
+        <pre id="logsText" aria-label="Copyable diagnostic logs" dir="ltr">RealMotion Studio ready. Select a reference and generate a clip.</pre>
+      </details>
+
+      <div class="activity-foot"><span class="status-square"></span><p>تشغيل محلي بدون رصيد مدفوع. جودة Wan Q2 على 6GB تجريبية؛ وضع Stable Food للحفاظ على صورة الماكلة.</p></div>
+    </aside>
   </div>
   <input id="fileInput" type="file" accept="image/png,image/jpeg,image/webp,video/mp4,video/webm,video/quicktime,video/x-m4v" multiple hidden>
 </div>
-<script src="/static/app.js"></script>
+<script src="/static/app.js?v=firefly-studio-2"></script>
 </body>
 </html>
