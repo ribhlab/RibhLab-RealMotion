@@ -33,10 +33,13 @@
       <div class="field-group">
         <label class="field-label" for="renderMode"><span class="field-icon">◈</span> المحرك</label>
         <select class="field-select" id="renderMode">
+          <option value="ltx_2b">LTX 2B FP8 · مجاني · AI Motion</option>
           <option value="wan_ai">Wan 2.2 · AI Motion</option>
           <option value="stable_food">Stable Food · الحفاظ على الصورة</option>
         </select>
         <p class="field-help" id="modeHelp">توليد حركة جديدة فعلياً على NVIDIA. جودة Wan Q2 تجريبية وقد تظهر تشوهات.</p>
+        <p class="field-help" id="ltxReady" hidden aria-live="polite"></p>
+        <a class="field-help" id="ltxSetup" hidden href="https://github.com/ribhlab/RibhLab-RealMotion/blob/main/LTX_FREE_SETUP.md" target="_blank" rel="noopener noreferrer">إعداد LTX المجاني · موديل + T5</a>
         <div class="engine-card" id="engineCard"><span class="engine-symbol">◉</span><div><strong id="modeTitle">AI VIDEO GENERATION</strong><small id="modeSub">Wan GGUF · CUDA · 6GB experimental</small></div></div>
       </div>
 
