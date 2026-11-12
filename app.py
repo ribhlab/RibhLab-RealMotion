@@ -390,7 +390,7 @@ def _studio_worker(job_id: str, asset_id: uuid.UUID,
         speech = re.search(r'(?:الكلام|الحوار|يقول|تقول)\s*[:：]\s*(.+)', prompt,
                            flags=re.IGNORECASE | re.DOTALL)
         video_prompt = prompt[:speech.start()].strip() if speech and prompt[:speech.start()].strip() else prompt
-        voiced_text = (speech.group(1).strip() if speech else narration) if narration else ''
+        voiced_text = speech.group(1).strip() if speech and narration else ''
         render_single_studio_video(
             folder / 'reference.jpg', video_prompt, seconds,
             out_dir / 'result.mp4', update, narration=voiced_text)
