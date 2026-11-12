@@ -56,21 +56,25 @@ def source_canvas(source: Path, size: tuple[int, int]) -> Image.Image:
 
 
 def steam_layer(width: int, height: int, seconds: float,
-                *, strength: float = .65) -> Image.Image:
+                *, strength: float = .85, origin_x: float = .50,
+                origin_y: float = .65) -> Image.Image:
     """Animate transparent soft steam; food itself is never regenerated."""
     sw, sh = max(1, width // 4), max(1, height // 4)
     steam = Image.new('RGBA', (sw, sh), (0, 0, 0, 0))
     draw = ImageDraw.Draw(steam, 'RGBA')
-    cx, cy = sw * .52, sh * .57
-    for i in range(12):
-        age = (seconds * .25 + i / 12) % 1.0
-        drift = math.sin(seconds * .95 + i * 1.9)
-        x = cx + (i % 4 - 1.5) * sw * .035 + drift * sw * .022
-        y = cy - age * sh * .39
+    origin_x = max(.06, min(.94, float(origin_x)))
+    origin_y = max(.20, min(.94, float(origin_y)))
+    strength = max(.1, min(2., float(strength)))
+    cx, cy = sw * origin_x, sh * origin_y
+    for i in range(16):
+        age = (seconds * .22 + i / 16) % 1.0
+        drift = math.sin(seconds * .85 + i * 2.1)
+        x = cx + (i % 5 - 2) * sw * .018 + drift * sw * .022
+        y = cy - age * sh * .33
         radius_x = sw * (.012 + .025 * age)
-        radius_y = sh * (.035 + .025 * age)
+        radius_y = sh * (.022 + .04 * age)
         fade = max(0., math.sin(math.pi * age)) ** .8
-        alpha = round(19 * strength * fade)
+        alpha = round(33 * strength * fade)
         if alpha:
             draw.ellipse((x-radius_x, y-radius_y, x+radius_x, y+radius_y),
                          fill=(238, 238, 229, alpha))
@@ -80,7 +84,9 @@ def steam_layer(width: int, height: int, seconds: float,
 
 def render_stable_food_video(source: Path, destination: Path, seconds: int,
                              update: Callable[[str, float], None],
-                             cancel_event: threading.Event | None = None) -> str:
+                             cancel_event: threading.Event | None = None,
+                             *, steam_x: float = .5, steam_y: float = .65,
+                             steam_strength: float = .85) -> str:
     """High-fidelity atmospheric motion for a STILL, not AI object animation."""
     if not 1 <= seconds <= 10:
         raise ValueError('Food stabilization supports only 1 to 10 seconds')
@@ -99,13 +105,15 @@ def render_stable_food_video(source: Path, destination: Path, seconds: int,
         '-crf', '18', '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
         str(destination)
     ]
-    update(f'Stable food: preserving source pixels at {size[0]}x{size[1]}', .08)
+    update(f'Stable food: preserving original pixels at {size[0]}x{size[1]}; '
+           f'steam origin {steam_x:.2f},{steam_y:.2f}, strength {steam_strength:.2f}', .08)
     process = subprocess.Popen(args, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
     try:
         for frame_index in range(count):
             if cancel_event is not None and cancel_event.is_set():
                 raise StableMotionCancelled('Source-preserving animation cancelled')
-            overlay = steam_layer(*size, frame_index/fps)
+            overlay = steam_layer(*size, frame_index/fps, strength=steam_strength,
+                                  origin_x=steam_x, origin_y=steam_y)
             frame = Image.alpha_composite(base, overlay).convert('RGB')
             process.stdin.write(frame.tobytes())
             if frame_index % max(1, fps//2) == 0:
