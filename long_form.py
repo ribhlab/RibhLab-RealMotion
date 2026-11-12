@@ -19,6 +19,7 @@ import uuid
 from pathlib import Path
 from typing import Callable
 
+from stable_motion import choose_output_size, choose_wan_size
 from studio import (
     ComfyClient, ComfyError, GenerationCancelled, image_to_video_graph, normalize_clip,
     concatenate_clips, add_speech_to_clip, synthesize_speech
@@ -67,8 +68,9 @@ def _fingerprint(refs: list[Path], prompt: str, narration: str) -> str:
     key = {
         'v': 1, 'refs': [str(p.resolve()) for p in refs],
         'prompt': prompt, 'narration': narration,
-        'width': os.getenv("WAN_WIDTH", "288"),
-        'height': os.getenv("WAN_HEIGHT", "512"),
+        'width': os.getenv("WAN_WIDTH", str(choose_wan_size(refs[0])[0])),
+        'height': os.getenv("WAN_HEIGHT", str(choose_wan_size(refs[0])[1])),
+        'output_size': choose_output_size(refs[0]),
         'model': os.getenv("WAN_I2V_MODEL", "Wan2.2-TI2V-5B-Q2_K.gguf")
     }
     return hashlib.sha256(
@@ -147,10 +149,18 @@ def render_ten_minute_film(
     shots = plan_shots(prompt, references)
     folder = root / 'longform' / _fingerprint(references, prompt, narration)
     folder.mkdir(parents=True, exist_ok=True)
-    width = int(os.getenv('WAN_WIDTH', '288'))
-    height = int(os.getenv('WAN_HEIGHT', '512'))
+    export_w, export_h = choose_output_size(references[0])
+    width, height = choose_wan_size(references[0])
+    if bool(os.getenv('WAN_WIDTH')) != bool(os.getenv('WAN_HEIGHT')):
+        raise ValueError('WAN_WIDTH and WAN_HEIGHT must be configured together')
+    if os.getenv('WAN_WIDTH'):
+        width, height = int(os.getenv('WAN_WIDTH')), int(os.getenv('WAN_HEIGHT'))
     if min(width, height) < 128 or width % 16 or height % 16:
         raise ValueError("WAN_WIDTH and WAN_HEIGHT must be multiples of 16")
+    if abs(width / height - export_w / export_h) > .15:
+        raise ValueError('Long film latent aspect must match the first reference photo')
+    update(f'Film orientation from first image: {export_w}x{export_h}; '
+           f'Wan latent {width}x{height}', .01)
     outputs: list[Path] = []
     with ComfyClient(os.getenv('COMFYUI_URL', 'http://127.0.0.1:8188')) as comfy:
         comfy.health()
@@ -179,7 +189,8 @@ def render_ten_minute_film(
                 raise GenerationCancelled(f'Long-film stopped after shot {i+1}')
             tmp = folder / f"scene_{i:03d}.tmp.mp4"
             try:
-                normalize_clip(raw, tmp, SHOT_SECONDS, resolution='720:1280')
+                normalize_clip(raw, tmp, SHOT_SECONDS,
+                               resolution=f'{export_w}:{export_h}')
                 if tmp.stat().st_size < 2048:
                     raise ComfyError(f"Rendered scene {i+1} was too small")
                 os.replace(tmp, completed)
