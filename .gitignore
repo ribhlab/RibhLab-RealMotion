@@ -13,3 +13,6 @@ local_data/
 # Local Piper voice models / private weights
 models/
 *.onnx
+
+# Local LAN worker authentication secret
+.worker_token
