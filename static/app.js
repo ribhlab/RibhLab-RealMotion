@@ -1,6 +1,6 @@
 'use strict';
 const $=id=>document.getElementById(id);
-const state={assets:[],active:null,busy:false,poller:null,job:null,lastJob:null,startedAt:0,pollErrors:0,logs:'',worker:'unknown'};
+const state={assets:[],active:null,busy:false,poller:null,job:null,lastJob:null,startedAt:0,pollErrors:0,logs:'',worker:'unknown',ltxReady:null};
 function status(message,kind='neutral'){
   $('status').textContent=message;$('status').dataset.kind=kind;
 }
@@ -12,8 +12,26 @@ async function api(url,options={}){
   return body;
 }
 function updateButton(){
-  const stable=$('renderMode').value==='stable_food';
-  $('generate').disabled=!state.active||state.busy||(!stable&&$('prompt').value.trim().length<8);
+  const mode=$('renderMode').value;
+  const stable=mode==='stable_food';
+  const missingLtx=mode==='ltx_2b'&&state.ltxReady!==true;
+  $('generate').disabled=!state.active||state.busy||missingLtx||
+    (!stable&&$('prompt').value.trim().length<8);
+}
+async function refreshLtxReadiness(){
+  if($('renderMode').value!=='ltx_2b')return;
+  try{
+    const result=await api('/api/engines/ltx/status');
+    state.ltxReady=Boolean(result.ready);
+    $('ltxReady').textContent=result.ready?
+      '✓ LTX واجد فـComfyUI. النتيجة على GTX 1660 SUPER مازال خاصها اختبار.':
+      'LTX غير واجد: '+(result.missing||[]).join(' · ');
+    $('ltxReady').style.color=result.ready?'#84d6b2':'#e3a8a9';
+  }catch(e){
+    state.ltxReady=false;
+    $('ltxReady').textContent='تعذّر فحص LTX: '+e.message;
+  }
+  updateButton();
 }
 const CAMERA_HINTS={
   static:'Camera direction: perfectly static locked tripod; no zoom or pan.',
@@ -25,32 +43,46 @@ const CAMERA_HINTS={
 const FOOD_PROMPT='Photorealistic Moroccan food, subtle natural steam, completely static camera. Preserve the original source photograph and food details.';
 
 function refreshCreativeSettings(){
-  const stable=$('renderMode').value==='stable_food';
+  const mode=$('renderMode').value;
+  const stable=mode==='stable_food';
+  const ltx=mode==='ltx_2b';
   const longOption=$('duration').querySelector('option[value="600"]');
-  longOption.disabled=stable;
-  if(stable&&$('duration').value==='600')$('duration').value='3';
+  longOption.disabled=stable||ltx;
+  if((stable||ltx)&&$('duration').value==='600')$('duration').value='3';
   $('cameraMotion').disabled=stable||$('duration').value==='600';
   if(stable)$('cameraMotion').value='static';
   $('cameraHelp').textContent=stable?
-    'كاميرا ثابتة للحفاظ على المكونات. حركة البخار فقط.':
+    'كاميرا ثابتة: الصورة الأصلية كتتحافظ.':
     $('duration').value==='600'?
-      'الفيديو الطويل كيستخدم لقطات متعددة وحركات مختلفة تلقائياً.':
-      'توجيه نصي لـWan؛ النموذج يمكن ما يحترمش الحركة دائماً.';
+      'الفيلم الطويل خاص بمحرك Wan فقط.':
+      'حركة الكاميرا توجيه نصّي للنموذج، ماشي تحكم مضمون.';
   $('modeHelp').textContent=stable?
-    'حفاظ على نفس الصورة الأصلية مع بخار شفاف متحرك. ماشي حركة مولّدة بالذكاء الاصطناعي. مناسب للطاجين والأكل.':
-    'Wan 2.2 5B Q2 كيولد إطارات جديدة على NVIDIA؛ الحركة حقيقية ولكن استقرار المكونات ماشي مضمون على 6GB.';
-  $('modeTitle').textContent=stable?'SOURCE-PRESERVING FOOD':'AI VIDEO GENERATION';
-  $('modeSub').textContent=stable?'CPU + FFmpeg · transparent steam':'Wan 2.2 5B Q2 · NVIDIA 6GB experimental';
-  $('composerMode').textContent=stable?'Stable Food 2.5D':'Wan AI Motion';
+    '2.5D: نفس الماكلة مع حركة بخار خفيفة؛ ماشي AI حقيقي.':
+    ltx?
+      'LTX 2B FP8: ذكاء اصطناعي محلي ومجاني. يحتاج موديل 4.46GB وT5 إضافي؛ 6GB غير مضمونة.':
+      'Wan 5B Q2 محلي لكنه مشوّه فالتجارب السابقة.';
+  $('ltxReady').hidden=!ltx;
+  $('ltxSetup').hidden=!ltx;
+  if(ltx){
+    $('ltxReady').textContent='جارٍ التحقق من الموديلات...';
+    state.ltxReady=null;
+    refreshLtxReadiness();
+  }
+  $('modeTitle').textContent=stable?'SOURCE-PRESERVING FOOD':
+    ltx?'FREE LTX 2B IMAGE TO VIDEO':'WAN IMAGE TO VIDEO';
+  $('modeSub').textContent=stable?'CPU + FFmpeg · steam':
+    ltx?'Local FP8 · NVIDIA · experimental 6GB':'Wan GGUF · NVIDIA 6GB';
+  $('composerMode').textContent=stable?'Stable Food 2.5D':
+    ltx?'LTX 2B · Free':'Wan AI Motion';
   $('composerDuration').textContent=$('duration').value==='600'?'10min':$('duration').value+'s';
   $('prompt').placeholder=stable?
-    'اختياري: Soft delicate steam rises from a Moroccan tagine. (التأثير كيحافظ على المصدر)':
-    'مثال: Natural movement in a sunny Moroccan forest. Preserve the person’s face, realistic motion.';
+    'اختياري: Soft delicate steam rises from Moroccan food.':
+    ltx?'A natural scene with subtle realistic movement, detailed lighting and a stationary camera.':
+      'Natural movement in a sunny Moroccan forest. Preserve the person’s face.';
   $('footnote').textContent=stable?
-    'Stable Food: الصورة الأصلية كتثبت مع بخار خفيف متحرك؛ ما كاينش توليد شخص كيهضر أو يمشي. الصوت اختياري.':
-    $('duration').value==='600'?
-      '10 دقائق = 120 لقطة AI، مع إمكانية استرجاع اللقطات المكتملة. ثقيل جداً على 6GB.':
-      'Wan AI يولّد إطارات جديدة؛ الجودة محدودة بالعتاد والموديل الحالي، ومزامنة الشفاه غير مدعومة.';
+    'حركة بخار خفيفة على الصورة الأصلية؛ ليست فيديو مولّداً بالذكاء الاصطناعي.':
+    ltx?'LTX 2B مجاني محلي، ولكن قد يفشل على GTX 1660 SUPER 6GB. لا توجد API سحابية.':
+      'Wan يولد فيديو حقيقياً لكن محدود بالجودة على 6GB VRAM.';
   updateButton();
 }
 
@@ -261,10 +293,13 @@ async function generate(){
   const originalPrompt=$('prompt').value.trim();
   const stable=renderMode==='stable_food';
   if(!state.active||(!stable&&originalPrompt.length<8)){
-    status('زيد صورة وكتب وصف فيه على الأقل 8 حروف لوضع Wan AI','error');return;
+    status('زيد صورة وبرومبت فيه 8 حروف على الأقل لوضع AI','error');return;
   }
   const prompt=stable?(originalPrompt||FOOD_PROMPT):
     originalPrompt+'\n'+(CAMERA_HINTS[$('cameraMotion').value]||CAMERA_HINTS.static);
+  if(renderMode==='ltx_2b'&&state.ltxReady!==true){
+    status('LTX مازال غير واجد. شوف لائحة الموديلات الناقصة فوق.','error');return;
+  }
   if(state.job){status('كاينة مهمة خدامة. لغِيها أو خليها تكمل قبل بدء مهمة جديدة.','error');return}
   const longMode=Number($('duration').value)===600;
   state.busy=true;updateButton();
@@ -275,6 +310,7 @@ async function generate(){
   $('result').classList.add('hidden');
   status(longMode?'توليد 120 لقطة AI؛ كل لقطة كتتحفظ.':
     stable?'كنحضرو الفيديو مع الحفاظ على الصورة الأصلية وحركة بخار خفيفة...':
+      renderMode==='ltx_2b'?'بداية التوليد المجاني LTX 2B محلياً على NVIDIA...':
       'كنبدا توليد الحركة الحقيقية على NVIDIA Wan AI...');
   try{
     const job=await api('/api/studio/generate',{
