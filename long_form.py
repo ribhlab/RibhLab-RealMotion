@@ -14,12 +14,13 @@ import os
 import re
 import shutil
 import subprocess
+import threading
 import uuid
 from pathlib import Path
 from typing import Callable
 
 from studio import (
-    ComfyClient, ComfyError, image_to_video_graph, normalize_clip,
+    ComfyClient, ComfyError, GenerationCancelled, image_to_video_graph, normalize_clip,
     concatenate_clips, add_speech_to_clip, synthesize_speech
 )
 
@@ -97,13 +98,16 @@ def _speech_chunks(text: str, max_chars: int = 380) -> list[str]:
     return chunks
 
 
-def _full_voiceover(text: str, folder: Path, progress: Callable[[str, float], None]) -> Path:
+def _full_voiceover(text: str, folder: Path, progress: Callable[[str, float], None],
+                    cancel_event: threading.Event | None = None) -> Path:
     """Generate voiceover chunks and join them without a cloud service."""
     chunks = _speech_chunks(text)
     if not chunks:
         raise ValueError("Arabic narration text is empty")
     wavs: list[Path] = []
     for index, chunk in enumerate(chunks):
+        if cancel_event is not None and cancel_event.is_set():
+            raise GenerationCancelled('Long-film voiceover cancelled')
         wav = folder / f"voice_{index:04d}.wav"
         if not wav.is_file() or wav.stat().st_size < 100:
             asyncio.run(synthesize_speech(chunk, wav, 'ar'))
@@ -126,7 +130,8 @@ def _full_voiceover(text: str, folder: Path, progress: Callable[[str, float], No
 
 def render_ten_minute_film(
     references: list[Path], prompt: str, narration: str,
-    output: Path, root: Path, update: Callable[[str, float], None]
+    output: Path, root: Path, update: Callable[[str, float], None],
+    cancel_event: threading.Event | None = None
 ) -> str:
     """Generate 120 real Wan scenes, then assemble ten minutes of film.
 
@@ -151,6 +156,8 @@ def render_ten_minute_film(
         comfy.health()
         names: dict[Path, str] = {}
         for i, shot in enumerate(shots):
+            if cancel_event is not None and cancel_event.is_set():
+                raise GenerationCancelled(f'Long-film stopped before shot {i+1}')
             completed = folder / f"scene_{i:03d}.mp4"
             if completed.is_file() and completed.stat().st_size > 2048:
                 outputs.append(completed)
@@ -166,7 +173,10 @@ def render_ten_minute_film(
                 width=width, height=height)
             pid = comfy.submit(graph)
             raw = folder / f"raw_{i:03d}.mp4"
-            comfy.wait_and_download(pid, raw, timeout=7200)
+            comfy.wait_and_download(pid, raw, timeout=7200,
+                                    cancel_event=cancel_event)
+            if cancel_event is not None and cancel_event.is_set():
+                raise GenerationCancelled(f'Long-film stopped after shot {i+1}')
             tmp = folder / f"scene_{i:03d}.tmp.mp4"
             try:
                 normalize_clip(raw, tmp, SHOT_SECONDS, resolution='720:1280')
@@ -179,16 +189,21 @@ def render_ten_minute_film(
                 tmp.unlink(missing_ok=True)
             update(f"Finished AI scene {i+1}/{SHOT_COUNT}", 0.90*(i+1)/SHOT_COUNT)
 
+    if cancel_event is not None and cancel_event.is_set():
+        raise GenerationCancelled('Long-film cancelled before assembly')
     update("Joining 120 AI video scenes into a ten-minute film", .91)
     silent = folder / 'film_silent.mp4'
     concatenate_clips(outputs, silent, folder)
     output.parent.mkdir(parents=True, exist_ok=True)
     if narration.strip():
-        voice = _full_voiceover(narration, folder, update)
+        voice = _full_voiceover(narration, folder, update, cancel_event=cancel_event)
         update("Mixing Moroccan Arabic voiceover into MP4", .98)
         add_speech_to_clip(silent, voice, output, LONG_SECONDS)
     else:
         shutil.copyfile(silent, output)
+    if cancel_event is not None and cancel_event.is_set():
+        output.unlink(missing_ok=True)
+        raise GenerationCancelled('Long-film cancelled before final result')
     if not output.is_file() or output.stat().st_size < 5000:
         raise ComfyError("Long-form MP4 was not created")
     update("Ten-minute MP4 finished", 1.)
