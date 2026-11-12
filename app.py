@@ -614,11 +614,12 @@ def _studio_worker(job_id: str, asset_id: uuid.UUID,
             if render_mode == "ltx_2b":
                 _job_log(job_id, 'Free local LTX 2B FP8 on NVIDIA; native ComfyUI graph',
                          progress=2, phase='preparing')
+            kwargs = ({'engine': 'ltx_2b'} if render_mode == 'ltx_2b' else {})
             render_single_studio_video(
                 folder / 'reference.jpg', video_prompt, seconds,
                 out_dir / 'result.mp4', update, narration=voiced_text,
                 cancel_event=_job_cancel.setdefault(job_id, threading.Event()),
-                engine=render_mode)
+                **kwargs)
         _save_studio_result(job_id, asset_id, render_mode, seconds)
         _job_finished(job_id, 'done', 'Your MP4 is ready',
                       video_url=f'/api/studio/jobs/{job_id}/video')
