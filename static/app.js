@@ -1,6 +1,6 @@
 'use strict';
 const $=id=>document.getElementById(id);
-const state={assets:[],active:null,busy:false,poller:null,job:null};
+const state={assets:[],active:null,busy:false,poller:null,job:null,lastJob:null,startedAt:0,pollErrors:0,logs:'',worker:'unknown'};
 function status(message,kind='neutral'){
   $('status').textContent=message;$('status').dataset.kind=kind;
 }
@@ -13,6 +13,98 @@ async function api(url,options={}){
 }
 function updateButton(){
   $('generate').disabled=!state.active||state.busy||!$('prompt').value.trim();
+}
+const STAGE_NAMES={queued:'فالانتظار',preparing:'تحضير الملفات',gpu:'NVIDIA · توليد الحركة',macbook:'MacBook · معالجة الفيديو والصوت',voice:'صناعة الصوت',export:'تصدير MP4',done:'الفيديو واجد',failed:'فشل التوليد',cancelled:'تم الإلغاء',cancelling:'جاري إيقاف التوليد'};
+function showDashboard(){
+  $('jobDashboard').classList.remove('hidden');
+  $('cancelGeneration').disabled=false;
+  $('cancelGeneration').textContent='✕ إلغاء التوليد';
+}
+function updateDashboard(job){
+  showDashboard();
+  const phase=job.phase||job.status||'preparing';
+  const p=Math.max(0,Math.min(100,Number(job.progress)||0));
+  $('pct').textContent=p.toFixed(1).replace('.0','')+'%';
+  $('bar').style.width=p+'%';
+  $('progress').setAttribute('aria-valuenow',String(p));
+  $('stageTitle').textContent=(STAGE_NAMES[phase]||phase)+' · '+(job.message||'');
+  for(const item of $('productionStages').querySelectorAll('[data-phase]')){
+    const tag=item.dataset.phase;
+    item.classList.toggle('active',(tag==='gpu'&&phase==='gpu')||(tag==='macbook'&&['macbook','voice','export'].includes(phase))||(tag==='finished'&&phase==='done'));
+    item.classList.toggle('done',(tag==='gpu'&&['macbook','voice','export','done'].includes(phase))||(tag==='macbook'&&phase==='done'));
+  }
+  const end=['done','failed','cancelled'].includes(job.status);
+  $('cancelGeneration').classList.toggle('hidden',end);
+  if(job.status==='cancelling'){
+    $('cancelGeneration').disabled=true;
+    $('cancelGeneration').textContent='جاري الإلغاء...';
+  }
+}
+function elapsed(){
+  if(!state.startedAt||!state.job)return;
+  const secs=Math.max(0,Math.floor((Date.now()-state.startedAt)/1000));
+  $('elapsed').textContent=String(Math.floor(secs/60)).padStart(2,'0')+':'+String(secs%60).padStart(2,'0');
+}
+async function refreshLogs(){
+  const jobId=state.job||state.lastJob;
+  if(!jobId)return;
+  try{
+    const response=await fetch('/api/jobs/'+jobId+'/logs',{cache:'no-store'});
+    if(!response.ok)throw new Error('HTTP '+response.status);
+    const logs=await response.text();
+    if(logs!==state.logs){
+      state.logs=logs;
+      const view=$('logsText');
+      const nearEnd=view.scrollTop+view.clientHeight>=view.scrollHeight-70;
+      view.textContent='Job '+jobId+'\n'+logs;
+      if(nearEnd)view.scrollTop=view.scrollHeight;
+    }
+  }catch(e){
+    $('logsText').textContent=state.logs||('Logs unavailable: '+e.message);
+  }
+}
+async function copyLogs(){
+  const all='RibhLab RealMotion · '+new Date().toISOString()+'\n'+
+    'MacBook status: '+state.worker+'\n'+$('logsText').textContent;
+  try{
+    await navigator.clipboard.writeText(all);
+    $('copyLogs').textContent='✓ تنسخو Logs';
+    setTimeout(()=>$('copyLogs').textContent='⧉ نسخ Logs',2000);
+  }catch{
+    status('ما قدرناش ننسخو تلقائياً. اختار النص من لوحة Logs ودير Ctrl+C','error');
+  }
+}
+async function cancelGeneration(){
+  if(!state.job)return;
+  $('cancelGeneration').disabled=true;
+  status('تسجل طلب الإلغاء؛ كنوقفو GPU أو معالجة MacBook...');
+  try{
+    const job=await api('/api/jobs/'+state.job+'/cancel',{method:'POST'});
+    updateDashboard(job);
+    await refreshLogs();
+  }catch(e){
+    $('cancelGeneration').disabled=false;
+    status('ما قدرناش نلغيو: '+e.message,'error');
+  }
+}
+function finishJob(job){
+  clearInterval(state.poller);state.poller=null;
+  state.lastJob=state.job;state.job=null;state.busy=false;
+  localStorage.removeItem('realm-active-job');
+  $('cancelGeneration').classList.add('hidden');
+  updateButton();
+  refreshLogs();
+  if(job.status==='done'){
+    $('previewPanel').classList.add('hidden');
+    $('result').classList.remove('hidden');
+    $('player').src=job.video_url;
+    $('download').href=job.video_url;
+    $('download').download=Number($('duration').value)===600?'RibhLab-RealMotion-10min.mp4':'RibhLab-RealMotion.mp4';
+    status('✓ الفيديو واجد! شوفو وحمّلو MP4','success');
+  }else{
+    $('debugPanel').open=true;
+    status(job.status==='cancelled'?'تم إلغاء التوليد. تقدر تبدأ من جديد.':'التوليد فشل: '+job.message,'error');
+  }
 }
 function selectAsset(asset){
   state.active=asset;
@@ -63,36 +155,62 @@ async function check(){
     const online=health.comfyui==='connected';
     $('led').classList.toggle('online',online);
     $('connectivity').textContent=online?'ComfyUI متصل · NVIDIA':'ComfyUI غير متصل';
-  }catch{$('led').classList.remove('online');$('connectivity').textContent='سيرفر AI غير متصل'}
+    state.worker=health.macbook||'unknown';
+    const workerInfo={
+      connected:'✓ MacBook متصل ومصادق عليه · الصوت والمونتاج',
+      not_configured:'MacBook غير مفعّل؛ المعالجة محلياً على NVIDIA PC',
+      token_missing:'MacBook: رمز الاتصال غير مضبوط',
+      authentication_failed:'MacBook: رمز الاتصال غير صحيح',
+      unreachable:'MacBook: لا يمكن الاتصال بالسيرفر'
+    };
+    $('workerConnection').textContent=workerInfo[state.worker]||('MacBook: '+state.worker);
+  }catch(e){
+    $('led').classList.remove('online');
+    $('connectivity').textContent='سيرفر AI غير متصل';
+    $('workerConnection').textContent='الحالة غير معروفة؛ راجع PowerShell';
+  }
 }
 async function poll(){
   if(!state.job)return;
   try{
     const job=await api('/api/jobs/'+state.job);
-    $('bar').style.width=job.progress+'%';
+    state.pollErrors=0;
+    updateDashboard(job);
     status(job.message||'كنوجد الفيديو');
-    if(job.status==='done'){
-      clearInterval(state.poller);state.poller=null;state.busy=false;state.job=null;
-      $('progress').classList.add('hidden');$('previewPanel').classList.add('hidden');
-      $('result').classList.remove('hidden');$('player').src=job.video_url;
-      $('download').href=job.video_url;$('download').download=Number($('duration').value)===600?'RibhLab-RealMotion-10min.mp4':'RibhLab-RealMotion.mp4';status('الفيديو واجد! تقدر تشوفو وتحمّلو MP4','success');updateButton();
-    }else if(job.status==='failed'){
-      clearInterval(state.poller);state.poller=null;state.busy=false;state.job=null;
-      $('progress').classList.add('hidden');status('التوليد فشل: '+job.message,'error');updateButton();
+    elapsed();
+    await refreshLogs();
+    if(['done','failed','cancelled'].includes(job.status))finishJob(job);
+  }catch(e){
+    state.pollErrors++;
+    status('مراقبة التوليد: '+e.message+' — محاولة '+state.pollErrors,'error');
+    $('debugPanel').open=true;
+    if(state.pollErrors>=4){
+      clearInterval(state.poller);state.poller=null;
+      state.busy=false;updateButton();
+      if(e.message.includes('404')){
+        status('السيرفر تعاود تشغّل وفقد المهمة السابقة. عاود التوليد بعد التأكد من ComfyUI.','error');
+        localStorage.removeItem('realm-active-job');
+        state.lastJob=state.job;state.job=null;
+        $('cancelGeneration').classList.add('hidden');
+      }else{
+        status('المتابعة تعطلات؛ استعمل ↻ تحديث Logs أو عاود تحميل الصفحة لاستئناف تتبع نفس المهمة.','error');
+      }
     }
-  }catch(e){status('خطأ فمتابعة الفيديو: '+e.message,'error')}
+  }
 }
+
 async function generate(){
   const prompt=$('prompt').value.trim();
   if(!state.active||prompt.length<8){status('زيد صورة وكتب وصف فيه على الأقل 8 حروف','error');return}
+  if(state.job){status('كاينة مهمة خدامة. لغِيها أو خليها تكمل قبل بدء مهمة جديدة.','error');return}
   const longMode=Number($('duration').value)===600;
-  if(longMode && state.assets.length<2){
-    status('فيديو 10 دقائق من صورة وحدة غادي يكون متكرر. من الأحسن تزيد صور ومشاهد مختلفة، ولكن يمكنك تولدو بهذا المرجع.','neutral');
-  }
   state.busy=true;updateButton();
-  $('progress').classList.remove('hidden');$('bar').style.width='1%';
+  showDashboard();
+  $('bar').style.width='0%';
+  $('pct').textContent='0%';
+  $('stageTitle').textContent='جاري إرسال الطلب...';
   $('result').classList.add('hidden');
-  status(longMode?'كنوجد 120 لقطة AI لملف 10 دقائق. المشروع طويل وكيحفظ كل لقطة ناجحة باش يعاود يكمل.':'كنبدا توليد الفيديو على NVIDIA ديالك...');
+  status(longMode?'توليد 120 لقطة AI؛ كل لقطة كتتحفظ. تقدر تلغي وتحافظ على اللقطات المكتملة.':'كنبدا توليد الفيديو على NVIDIA...');
   try{
     const job=await api('/api/studio/generate',{
       method:'POST',headers:{'Content-Type':'application/json'},
@@ -100,14 +218,20 @@ async function generate(){
         asset_ids:longMode?state.assets.map(asset=>asset.id):[state.active.id],
         prompt,seconds:Number($('duration').value),with_voice:$('withVoice').checked})
     });
-    state.job=job.id;
+    state.job=job.id;state.lastJob=job.id;state.startedAt=Date.now();state.pollErrors=0;state.logs='';
+    localStorage.setItem('realm-active-job',job.id);
+    $('logsText').textContent='Job '+job.id+'\nRequest accepted. Waiting for server logs...';
+    updateDashboard(job);
     await poll();
-    if(state.job)state.poller=setInterval(poll,3500);
+    if(state.job)state.poller=setInterval(poll,3000);
   }catch(e){
-    state.busy=false;$('progress').classList.add('hidden');updateButton();
+    state.busy=false;updateButton();
+    $('debugPanel').open=true;
     status('ما قدرناش نبداو: '+e.message,'error');
+    $('logsText').textContent+='\n[ERROR] '+e.message;
   }
 }
+
 function init(){
   $('chooseMain').addEventListener('click',openFiles);
   $('replace').addEventListener('click',openFiles);
@@ -121,6 +245,17 @@ function init(){
       'الفيديو المرفوع كيتستعمل من أول صورة فيه كمرجع؛ تعديل الفيديو الكامل ومزامنة الشفاه مازال ما مدعومينش فهاد النسخة.';
   });
   $('generate').addEventListener('click',generate);
+  $('cancelGeneration').addEventListener('click',cancelGeneration);
+  $('refreshLogs').addEventListener('click',async()=>{await refreshLogs();if(state.job)await poll()});
+  $('copyLogs').addEventListener('click',copyLogs);
+  setInterval(elapsed,1000);
+  const previous=localStorage.getItem('realm-active-job');
+  if(previous&&/^[0-9a-f-]{36}$/i.test(previous)){
+    state.job=previous;state.lastJob=previous;state.busy=true;state.startedAt=Date.now();
+    showDashboard();$('debugPanel').open=true;updateButton();
+    status('كنرجعو متابعة المهمة السابقة بعد تحديث الصفحة...');
+    poll().then(()=>{if(state.job)state.poller=setInterval(poll,3000)});
+  }
   const zone=$('stage');
   for(const type of ['dragenter','dragover']){
     zone.addEventListener(type,e=>{e.preventDefault();zone.classList.add('dragging')});
