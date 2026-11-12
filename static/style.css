@@ -75,3 +75,29 @@ h1 span{color:#d0aefd}
 .chevron{font-size:16px}
 .footnote{max-width:1100px;margin:8px auto 0;text-align:center;color:#7e7b8e;font-size:10px}
 @media(max-width:700px){.workspace{padding:21px 13px 8px}.topbar{padding:0 12px;height:63px}.brand b{font-size:14px}.brand small{font-size:8px}.mark{width:34px;height:34px}.local-pill{display:none}.titleline{display:block}.titleline p{margin-top:10px;max-width:none}.stage{min-height:320px}.composer-wrap{padding:8px 10px 12px}.composer{padding:11px}.composer-tools{align-items:stretch}.settings{gap:6px}.hint-inline{display:none}.generate-btn{padding:10px 13px}.preview-meta{font-size:9px}}
+
+/* Production monitor, explicitly separating measured sampler steps from stage estimates */
+.job-dashboard{margin-top:14px;padding:16px 18px;border:1px solid #484057;border-radius:16px;background:#1a1a26}
+.job-heading{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.job-heading strong{font-size:15px;color:#e9ddff}
+.job-heading small{display:inline-block;color:#9c97b2;margin-inline-start:12px;font-variant-numeric:tabular-nums}
+.job-actions{display:flex;align-items:center;gap:12px}
+#pct{font-variant-numeric:tabular-nums;font-weight:700;color:#d8c0ff;min-width:50px;text-align:center}
+.cancel-btn{border:1px solid #b27880;border-radius:9px;background:#36212b;color:#ffbdc4;padding:9px 16px;font-weight:650}
+.cancel-btn:hover{background:#522b37}
+.cancel-btn:disabled{opacity:.5;cursor:wait}
+.job-dashboard .progress{height:9px;margin:13px 0}
+.production-stages{display:flex;gap:9px;flex-wrap:wrap}
+.production-stages span{border-radius:20px;border:1px solid #383344;background:#25232e;color:#9692a6;padding:6px 10px;font-size:11px}
+.production-stages span.active{color:#e8d8ff;border-color:#c3a3f1;background:#4e385d}
+.production-stages span.done{color:#8be8c2;border-color:#397b67}
+.progress-explainer{font-size:10px;color:#a09aaf;margin-top:10px}
+.debug-panel{margin-top:16px;max-width:100%;border:1px solid #373445;border-radius:14px;background:#12131c;overflow:hidden}
+.debug-panel summary{cursor:pointer;font-size:13px;font-weight:650;padding:13px 16px;color:#dbd3e8}
+.debug-panel[open] summary{border-bottom:1px solid #3e394a}
+.debug-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-start;padding:10px 12px}
+#workerConnection{margin-inline-end:auto;color:#a6b7c0;font-size:12px}
+.log-btn{background:#282637;border:1px solid #544763;border-radius:8px;color:#ebe0ff;padding:8px 12px;font-size:12px}
+.log-btn:hover{background:#3a314b}
+#logsText{direction:ltr;text-align:left;white-space:pre-wrap;overflow-wrap:anywhere;overflow-y:auto;max-height:245px;min-height:90px;margin:0;padding:12px 15px;background:#090b11;color:#a4e6c5;font-size:12px;line-height:1.6;user-select:text}
+@media(max-width:700px){.job-dashboard{padding:12px}.job-heading{align-items:flex-start}.production-stages{gap:5px}.production-stages span{font-size:10px}.debug-panel summary{font-size:12px}.debug-actions{gap:6px}#workerConnection{width:100%}}
