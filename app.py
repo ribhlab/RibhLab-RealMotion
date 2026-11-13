@@ -127,6 +127,7 @@ class Scene(BaseModel):
     dialogue: str = Field(default='', max_length=800)
     voice: str = Field(default='ar-MA-JamalNeural', min_length=5, max_length=80)
     audio_file: str | None = None
+    lip_sync: bool = False  # MuseTalk 1.5: real video+audio lip sync, optional
 
     @field_validator('audio_file')
     @classmethod
@@ -232,6 +233,13 @@ def health():
                 worker = 'unreachable'
     return {'server': 'ok', 'mode': 'local', 'comfyui': gpu,
             'devices': devices, 'macbook': worker}
+
+
+@app.get('/api/engines/lipsync/status')
+def lipsync_status():
+    """Local-only readiness: isolated MuseTalk Python and actual weight files."""
+    from lipsync import check_lipsync_ready
+    return check_lipsync_ready()
 
 
 @app.get('/api/engines/wan/status')
@@ -449,6 +457,7 @@ class StudioRequest(BaseModel):
     prompt: str = Field(min_length=8, max_length=12000)
     seconds: int = Field(default=5, ge=1, le=600)
     with_voice: bool = True
+    lip_sync: bool = False
     render_mode: Literal["wan_ai", "ltx_2b", "stable_food"] = "wan_ai"
     steam_x: float = Field(default=.50, ge=0., le=1.)
     steam_y: float = Field(default=.65, ge=0., le=1.)
@@ -592,7 +601,7 @@ def studio_reference_preview(asset_id: uuid.UUID):
 
 
 def _studio_worker(job_id: str, asset_id: uuid.UUID,
-                   prompt: str, seconds: int, narration: str):
+                   prompt: str, seconds: int, narration: str, lip_sync: bool = False):
     import re
     from studio import render_single_studio_video, render_source_preserving_food
     folder = _studio_folder(asset_id)
@@ -636,9 +645,36 @@ def _studio_worker(job_id: str, asset_id: uuid.UUID,
             kwargs = ({'engine': 'ltx_2b'} if render_mode == 'ltx_2b' else {})
             render_single_studio_video(
                 folder / 'reference.jpg', video_prompt, seconds,
-                out_dir / 'result.mp4', update, narration=voiced_text,
+                out_dir / 'result.mp4', update,
+                narration='' if lip_sync else voiced_text,
                 cancel_event=_job_cancel.setdefault(job_id, threading.Event()),
                 **kwargs)
+            if lip_sync:
+                from lipsync import render_lipsync
+                from studio import synthesize_speech, ComfyClient
+                import asyncio
+                voice = out_dir / 'lipsync_voice.wav'
+                _job_log(job_id, 'Generating original offline speech for real lip sync',
+                         progress=86, phase='voice')
+                asyncio.run(synthesize_speech(voiced_text, voice, 'local'))
+                # Wan/LTX cached GPU weights may keep VRAM reserved. Ask ComfyUI
+                # to release them before starting the separate MuseTalk process.
+                try:
+                    with ComfyClient(os.environ.get('COMFYUI_URL', 'http://127.0.0.1:8188')) as comfy:
+                        comfy.client.post('/free',
+                                          json={'unload_models': True, 'free_memory': True},
+                                          timeout=15).raise_for_status()
+                except Exception as exc:
+                    _job_log(job_id, 'ComfyUI GPU memory release failed: ' + str(exc)[:200],
+                             progress=87, phase='lipsync')
+                synced = out_dir / 'result-synchronized.mp4'
+                render_lipsync(
+                    out_dir / 'result.mp4', voice, synced,
+                    seconds=seconds, workdir=out_dir / 'musetalk_work',
+                    cancel_event=_job_cancel.setdefault(job_id, threading.Event()),
+                    progress=lambda message: _job_log(job_id, message, progress=90,
+                                                      phase='lipsync'))
+                os.replace(synced, out_dir / 'result.mp4')
         _save_studio_result(job_id, asset_id, render_mode, seconds)
         _job_finished(job_id, 'done', 'Your MP4 is ready',
                       video_url=f'/api/studio/jobs/{job_id}/video')
@@ -695,6 +731,19 @@ def studio_generate(body: StudioRequest):
     if not (asset / 'reference.jpg').is_file():
         raise HTTPException(404, "Upload a photo or video first")
     long_mode = body.seconds == 600
+    if body.lip_sync:
+        import re
+        from lipsync import check_lipsync_ready
+        if long_mode or body.render_mode == 'stable_food':
+            raise HTTPException(422, 'True lip sync works on 1-10 second AI clips, not stable food or 10-minute mode')
+        if not body.with_voice:
+            raise HTTPException(422, 'Enable local voice before lip sync')
+        if not re.search(r'(?:الكلام|الحوار|يقول|تقول)\s*[:：]\s*\S+', body.prompt):
+            raise HTTPException(422, 'Add spoken text after الكلام: in the prompt for lip sync')
+        ready = check_lipsync_ready()
+        if not ready['ready']:
+            raise HTTPException(422, 'Install MuseTalk 1.5 using Install-LipSync.bat. Missing: ' +
+                                ', '.join(ready['missing'][:4]))
     if long_mode and body.render_mode != 'wan_ai':
         raise HTTPException(422, '10-minute film is supported for Wan only; choose a short clip for LTX or Stable Food')
     ids = list(dict.fromkeys(body.asset_ids or [body.asset_id]))
@@ -717,6 +766,7 @@ def studio_generate(body: StudioRequest):
                       else 'Queued on local GPU')),
             'mode': 'longform' if long_mode else 'studio',
             'render_mode': body.render_mode,
+            'lip_sync': body.lip_sync,
             'steam_x': body.steam_x,
             'steam_y': body.steam_y,
             'steam_strength': body.steam_strength,
@@ -734,7 +784,8 @@ def studio_generate(body: StudioRequest):
                             body.with_voice)
         else:
             executor.submit(_studio_worker, job_id, body.asset_id, body.prompt.strip(),
-                            body.seconds, body.prompt.strip() if body.with_voice else '')
+                            body.seconds, body.prompt.strip() if body.with_voice else '',
+                            body.lip_sync)
         return _jobs[job_id].copy()
 
 
