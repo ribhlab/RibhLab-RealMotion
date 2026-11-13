@@ -121,7 +121,8 @@ def _run_inference(
         while process.poll() is None:
             if cancel_event is not None and cancel_event.is_set():
                 _terminate_tree(process)
-                raise LipSyncError("Lip sync generation cancelled")
+                from studio import GenerationCancelled
+                raise GenerationCancelled("MuseTalk lip sync cancelled")
             if time.monotonic() - started > timeout:
                 _terminate_tree(process)
                 raise LipSyncError("MuseTalk exceeded the local time limit; check RAM / VRAM")
@@ -177,7 +178,8 @@ def render_lipsync(
             + ", ".join(status["missing"][:6])
         )
     if cancel_event is not None and cancel_event.is_set():
-        raise LipSyncError("Lip sync generation cancelled")
+        from studio import GenerationCancelled
+        raise GenerationCancelled("MuseTalk lip sync cancelled")
     root = get_root()
     parent = Path(workdir).resolve() if workdir else destination.parent / "lipsync_tmp"
     job = parent / ("job_" + uuid.uuid4().hex[:12])
@@ -229,7 +231,8 @@ def render_lipsync(
             "Check MuseTalk/face detection logs and use a front-facing portrait."
         )
     if cancel_event is not None and cancel_event.is_set():
-        raise LipSyncError("Lip sync generation cancelled")
+        from studio import GenerationCancelled
+        raise GenerationCancelled("MuseTalk lip sync cancelled")
     destination.parent.mkdir(parents=True, exist_ok=True)
     if progress:
         progress("Combining true mouth-synced frames with original speech in MP4")
