@@ -1,6 +1,6 @@
 'use strict';
 const $=id=>document.getElementById(id);
-const state={assets:[],active:null,busy:false,poller:null,job:null,lastJob:null,startedAt:0,pollErrors:0,logs:'',worker:'unknown',ltxReady:null,wanReady:null,comfyOnline:null};
+const state={assets:[],active:null,busy:false,poller:null,job:null,lastJob:null,startedAt:0,pollErrors:0,logs:'',worker:'unknown',ltxReady:null,wanReady:null,comfyOnline:null,lipSyncReady:null};
 function status(message,kind='neutral'){
   $('status').textContent=message;$('status').dataset.kind=kind;
 }
@@ -16,8 +16,37 @@ function updateButton(){
   const stable=mode==='stable_food';
   const missingLtx=mode==='ltx_2b'&&state.ltxReady!==true;
   const missingWan=mode==='wan_ai'&&state.wanReady!==true;
-  $('generate').disabled=!state.active||state.busy||missingLtx||missingWan||
+  const missingSync=$('lipSync').checked&&state.lipSyncReady!==true;
+  $('generate').disabled=!state.active||state.busy||missingLtx||missingWan||missingSync||
     (!stable&&$('prompt').value.trim().length<8);
+}
+async function refreshLipSyncReadiness(){
+  if(!$('lipSync').checked)return;
+  try{
+    const result=await api('/api/engines/lipsync/status');
+    state.lipSyncReady=Boolean(result.ready);
+    $('lipSyncStatus').textContent=result.ready
+      ? '✓ MuseTalk 1.5 مثبت. تحريك الشفاه كيتم محلياً على GPU؛ النتيجة كتحتاج اختبار.'
+      : 'MuseTalk باقي ناقص: '+(result.missing||[]).slice(0,4).join(' · ')+' — شغّل Install-LipSync.bat';
+    $('lipSyncStatus').style.color=result.ready?'#84d6b2':'#e3a8a9';
+  }catch(error){
+    state.lipSyncReady=false;
+    $('lipSyncStatus').textContent='فحص MuseTalk فشل: '+error.message;
+  }
+  updateButton();
+}
+function updateLipSync(){
+  const selected=$('lipSync').checked;
+  if(selected){
+    $('withVoice').checked=true;
+    state.lipSyncReady=null;
+    $('lipSyncStatus').textContent='كنفحص MuseTalk 1.5 فالحاسوب...';
+    refreshLipSyncReadiness();
+  }else{
+    state.lipSyncReady=null;
+    $('lipSyncStatus').textContent='اختياري، مجاني ومحلي. خاص تثبيت MuseTalk 1.5 أول مرة، وكارت NVIDIA.';
+  }
+  updateButton();
 }
 async function refreshWanReadiness(){
   if($('renderMode').value!=='wan_ai')return;
@@ -67,6 +96,13 @@ function refreshCreativeSettings(){
   if((stable||ltx)&&$('duration').value==='600')$('duration').value='3';
   $('cameraMotion').disabled=stable||$('duration').value==='600';
   if(stable)$('cameraMotion').value='static';
+  const longMode=$('duration').value==='600';
+  const unsupported=stable||longMode;
+  $('lipSync').disabled=unsupported;
+  if(unsupported&&$('lipSync').checked){
+    $('lipSync').checked=false;
+    updateLipSync();
+  }
   $('cameraHelp').textContent=stable?
     'كاميرا ثابتة: الصورة الأصلية كتتحافظ.':
     $('duration').value==='600'?
@@ -258,6 +294,7 @@ async function check(){
     const connectedNow=online&&state.comfyOnline!==true;
     state.comfyOnline=online;
     if(connectedNow){
+      if($('lipSync').checked&&state.lipSyncReady!==true)refreshLipSyncReadiness();
       const selected=$('renderMode').value;
       if(selected==='wan_ai'&&state.wanReady!==true)refreshWanReadiness();
       if(selected==='ltx_2b'&&state.ltxReady!==true)refreshLtxReadiness();
@@ -331,6 +368,12 @@ async function generate(){
   if(renderMode==='wan_ai'&&state.wanReady!==true){
     status('Wan ناقص: شوف لائحة الموديلات أو ثبت ComfyUI-GGUF.','error');return;
   }
+  if($('lipSync').checked&&!$('withVoice').checked){
+    status('فعّل الصوت المحلي قبل تحريك الشفاه.','error');return;
+  }
+  if($('lipSync').checked&&state.lipSyncReady!==true){
+    status('MuseTalk 1.5 مازال ما تجهزش؛ شغّل Install-LipSync.bat.','error');return;
+  }
   if(renderMode==='ltx_2b'&&state.ltxReady!==true){
     status('LTX مازال غير واجد. شوف لائحة الموديلات الناقصة فوق.','error');return;
   }
@@ -352,7 +395,8 @@ async function generate(){
       body:JSON.stringify({asset_id:state.active.id,
         asset_ids:longMode?state.assets.map(asset=>asset.id):[state.active.id],
         prompt,seconds:Number($('duration').value),
-        render_mode:renderMode,with_voice:$('withVoice').checked})
+        render_mode:renderMode,with_voice:$('withVoice').checked,
+        lip_sync:$('lipSync').checked})
     });
     state.job=job.id;state.lastJob=job.id;state.startedAt=Date.now();state.pollErrors=0;state.logs='';
     localStorage.setItem('realm-active-job',job.id);
@@ -376,6 +420,13 @@ function init(){
   $('prompt').addEventListener('input',updateButton);
   $('duration').addEventListener('change',refreshCreativeSettings);
   $('renderMode').addEventListener('change',refreshCreativeSettings);
+  $('lipSync').addEventListener('change',updateLipSync);
+  $('withVoice').addEventListener('change',()=>{
+    if(!$('withVoice').checked&&$('lipSync').checked){
+      $('lipSync').checked=false;updateLipSync();
+    }
+    updateButton();
+  });
   $('cameraMotion').addEventListener('change',refreshCreativeSettings);
   refreshCreativeSettings();
   $('generate').addEventListener('click',generate);
