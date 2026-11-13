@@ -8,6 +8,17 @@ The **first installation** requires an Internet connection to download Python pa
 
 > This is an experimental MVP. The code/logic can be tested without a GPU, but a real video render has **not yet been validated end-to-end** on your computer. The local test combines Wan 5B Q2 motion and a Piper speech soundtrack; it does not synchronize lips. Natural Darija pronunciation and facial identity are not guaranteed.
 
+## NEW: true offline lip sync (optional)
+
+After installing Wan/LTX and your offline speech voice, double-click
+`Install-LipSync.bat` to set up the isolated MuseTalk 1.5 engine.
+Open RealMotion Studio and enable **🎤 تحريك الشفاه الحقيقي · MuseTalk 1.5**
+for a **3–5 second clip** with a front-facing person and `الكلام:` text.
+
+For prerequisites, Windows installation limits, models, and licenses see
+**[LIPSYNC_SETUP.md](LIPSYNC_SETUP.md)**. This is real AI mouth reanimation,
+not just a voice track. The GTX 1660 SUPER 6GB still needs actual GPU testing.
+
 ## Step 1 — hardware check
 
 On Windows PowerShell:
@@ -76,7 +87,7 @@ The default storyboard already has Moroccan Arabic dialogue. To generate its **s
 powershell -NoProfile -ExecutionPolicy Bypass -File .\windows\setup_voice.ps1
 ```
 
-This downloads the Piper runtime and the `ar_JO-kareem-medium.onnx` Arabic model and config from the original publisher, verifies SHA-256, and saves them under `models/`. On later runs it generates speech **locally**, with no API key. That voice is Jordanian Arabic rather than Moroccan Darija and may pronounce some Darija phrases imperfectly. You can alternatively upload a recorded audio file to each talking scene. If Piper is absent, the program uses Windows SAPI voices available on the computer (quality varies and Arabic might not be installed). The first video+voice test does **not** require Wan S2V 14B: the voice is mixed into Wan 5B motion, without lip synchronization.
+This downloads the Piper runtime and the `ar_JO-kareem-medium.onnx` Arabic model and config from the original publisher, verifies SHA-256, and saves them under `models/`. On later runs it generates speech **locally**, with no API key. That voice is Jordanian Arabic rather than Moroccan Darija and may pronounce some Darija phrases imperfectly. You can alternatively upload a recorded audio file to each talking scene. If Piper is absent, the program uses Windows SAPI voices available on the computer (quality varies and Arabic might not be installed). The first video+voice test does **not** require Wan S2V 14B: the voice is mixed into Wan 5B motion; **real lip sync is optional via MuseTalk 1.5** (see [LIPSYNC_SETUP.md](LIPSYNC_SETUP.md)).
 
 Voice model: https://huggingface.co/rhasspy/piper-voices/tree/main/ar/ar_JO/kareem/medium
 
