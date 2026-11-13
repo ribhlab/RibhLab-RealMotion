@@ -1,6 +1,6 @@
 'use strict';
 const $=id=>document.getElementById(id);
-const state={assets:[],active:null,busy:false,poller:null,job:null,lastJob:null,startedAt:0,pollErrors:0,logs:'',worker:'unknown',ltxReady:null};
+const state={assets:[],active:null,busy:false,poller:null,job:null,lastJob:null,startedAt:0,pollErrors:0,logs:'',worker:'unknown',ltxReady:null,wanReady:null};
 function status(message,kind='neutral'){
   $('status').textContent=message;$('status').dataset.kind=kind;
 }
@@ -15,8 +15,24 @@ function updateButton(){
   const mode=$('renderMode').value;
   const stable=mode==='stable_food';
   const missingLtx=mode==='ltx_2b'&&state.ltxReady!==true;
-  $('generate').disabled=!state.active||state.busy||missingLtx||
+  const missingWan=mode==='wan_ai'&&state.wanReady!==true;
+  $('generate').disabled=!state.active||state.busy||missingLtx||missingWan||
     (!stable&&$('prompt').value.trim().length<8);
+}
+async function refreshWanReadiness(){
+  if($('renderMode').value!=='wan_ai')return;
+  try{
+    const result=await api('/api/engines/wan/status');
+    state.wanReady=Boolean(result.ready);
+    $('wanReady').textContent=result.ready?
+      '✓ Wan 2.2 GGUF والموديلات واجدين فـComfyUI. نجاح الرندر على GTX 1660 SUPER كيتطلب تجربة فعلية.':
+      'Wan مازال ناقص: '+(result.missing||[]).join(' · ');
+    $('wanReady').style.color=result.ready?'#84d6b2':'#e3a8a9';
+  }catch(e){
+    state.wanReady=false;
+    $('wanReady').textContent='فحص Wan ما خدمش: '+e.message;
+  }
+  updateButton();
 }
 async function refreshLtxReadiness(){
   if($('renderMode').value!=='ltx_2b')return;
@@ -63,6 +79,13 @@ function refreshCreativeSettings(){
       'Wan 5B Q2 محلي لكنه مشوّه فالتجارب السابقة.';
   $('ltxReady').hidden=!ltx;
   $('ltxSetup').hidden=!ltx;
+  $('wanReady').hidden=mode!=='wan_ai';
+  $('wanSetup').hidden=mode!=='wan_ai';
+  if(mode==='wan_ai'){
+    state.wanReady=null;
+    $('wanReady').textContent='كنفحص Wan Q2 وGGUF والموديلات...';
+    refreshWanReadiness();
+  }
   if(ltx){
     $('ltxReady').textContent='جارٍ التحقق من الموديلات...';
     state.ltxReady=null;
@@ -297,6 +320,9 @@ async function generate(){
   }
   const prompt=stable?(originalPrompt||FOOD_PROMPT):
     originalPrompt+'\n'+(CAMERA_HINTS[$('cameraMotion').value]||CAMERA_HINTS.static);
+  if(renderMode==='wan_ai'&&state.wanReady!==true){
+    status('Wan ناقص: شوف لائحة الموديلات أو ثبت ComfyUI-GGUF.','error');return;
+  }
   if(renderMode==='ltx_2b'&&state.ltxReady!==true){
     status('LTX مازال غير واجد. شوف لائحة الموديلات الناقصة فوق.','error');return;
   }
