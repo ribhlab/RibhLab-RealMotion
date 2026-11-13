@@ -95,8 +95,39 @@ if (Test-Path $voice) {
   Write-Host "Optional: install Arabic offline voice via windows\setup_voice.ps1"
   Write-Host "Windows SAPI local voice is used automatically if Piper is absent."
 }
-Write-Host "Opening the local studio: http://127.0.0.1:8000" -ForegroundColor Green
-Start-Process 'http://127.0.0.1:8000'
-Write-Host "Keep this window open. Ctrl+C stops the studio."
-& $venv -m uvicorn app:app --host 127.0.0.1 --port 8000
-if ($LASTEXITCODE -ne 0) { throw "Local app failed to start." }
+# The old launcher used port 8000 unconditionally, causing WinError 10048
+# if an earlier RealMotion session or another app already owned it.
+$requestedPort = 8000
+if ($env:REALMOTION_PORT) {
+  $value = 0
+  if (-not [int]::TryParse($env:REALMOTION_PORT, [ref]$value) -or $value -lt 1024 -or $value -gt 65525) {
+    throw "REALMOTION_PORT must be a valid TCP port from 1024 to 65525"
+  }
+  $requestedPort = $value
+}
+$selectedPort = $null
+for ($candidate = $requestedPort; $candidate -le ($requestedPort + 10); $candidate++) {
+  $probe = $null
+  try {
+    $probe = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, [int]$candidate)
+    $probe.Start()
+    $selectedPort = $candidate
+    break
+  } catch [System.Net.Sockets.SocketException] {
+    Write-Warning "Port $candidate already occupied; checking the next local port."
+  } finally {
+    if ($probe) { $probe.Stop() }
+  }
+}
+if ($null -eq $selectedPort) {
+  throw "No available RealMotion port from $requestedPort to $($requestedPort + 10). Close other instances."
+}
+$url = "http://127.0.0.1:$selectedPort/"
+Write-Host "Opening LOCAL RealMotion: $url" -ForegroundColor Green
+if ($selectedPort -ne $requestedPort) {
+  Write-Warning "Using $selectedPort because $requestedPort is already in use. Existing processes were not terminated."
+}
+Start-Process $url
+Write-Host "Keep this window open. Ctrl+C stops only this studio instance."
+& $venv -m uvicorn app:app --host 127.0.0.1 --port $selectedPort
+if ($LASTEXITCODE -ne 0) { throw "Local app failed to start on port $selectedPort." }
