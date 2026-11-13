@@ -532,9 +532,9 @@ def prepare_audio(src: Path, target: Path, seconds: int) -> None:
 def render_project(project: dict[str, Any], root: Path, update: Any, *, preview: bool = False) -> str:
     """Render Wan 5B GGUF motion and local Arabic speech into one MP4.
 
-    For a GTX 1660 SUPER 6 GB, the first proof-of-concept is one 5s talking
-    scene with a local voice soundtrack. True phoneme-to-lip sync is NOT part
-    of this lightweight workflow and remains a separate GPU-intensive feature.
+    On a 6 GB GTX 1660 SUPER, base Wan Q2 generates video; MuseTalk 1.5
+    optionally re-renders actual mouth motion from the local speech audio.
+    Without that option the result is voiceover only, not real lip sync.
     """
     if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
         raise ComfyError("ffmpeg and ffprobe must be installed on the host")
@@ -595,7 +595,30 @@ def render_project(project: dict[str, Any], root: Path, update: Any, *, preview:
                     raise ComfyError("A speaking scene needs dialogue or an uploaded recording")
                 if not audio.is_file():
                     raise ComfyError("Speech audio file missing after local synthesis")
-                add_speech_to_clip(silent, audio, final, scene["seconds"])
+                if scene.get("lip_sync", False):
+                    from lipsync import render_lipsync
+                    update(f"Freeing Wan GPU cache for MuseTalk scene {index + 1}",
+                           (index + .74) / len(scenes))
+                    try:
+                        comfy.client.post(
+                            "/free",
+                            json={"unload_models": True, "free_memory": True},
+                            timeout=15,
+                        ).raise_for_status()
+                    except httpx.HTTPError as exc:
+                        raise ComfyError(
+                            "Could not free ComfyUI GPU memory for lip sync: "
+                            + str(exc)[:300]
+                        ) from exc
+                    render_lipsync(
+                        silent, audio, final,
+                        seconds=scene["seconds"],
+                        workdir=workdir / f"lipsync_scene_{index}",
+                        progress=lambda message: update(
+                            message, (index + .85) / len(scenes)),
+                    )
+                else:
+                    add_speech_to_clip(silent, audio, final, scene["seconds"])
             else:
                 shutil.copyfile(silent, final)
             clips.append(final)
