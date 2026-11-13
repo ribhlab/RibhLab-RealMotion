@@ -783,9 +783,14 @@ def studio_generate(body: StudioRequest):
             executor.submit(_studio_long_worker, job_id, ids, body.prompt.strip(),
                             body.with_voice)
         else:
-            executor.submit(_studio_worker, job_id, body.asset_id, body.prompt.strip(),
-                            body.seconds, body.prompt.strip() if body.with_voice else '',
-                            body.lip_sync)
+            # Keep the existing worker argument contract for voiceover-only
+            # requests. The extra flag is passed only for opted-in lip sync.
+            args = (job_id, body.asset_id, body.prompt.strip(), body.seconds,
+                    body.prompt.strip() if body.with_voice else '')
+            if body.lip_sync:
+                executor.submit(_studio_worker, *args, True)
+            else:
+                executor.submit(_studio_worker, *args)
         return _jobs[job_id].copy()
 
 
