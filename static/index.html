@@ -85,7 +85,13 @@
 
       <div class="field-group">
         <label class="toggle-line" for="withVoice"><span class="toggle-copy"><strong>تعليق صوتي محلي</strong><small>الكلام: نص التعليق</small></span><input type="checkbox" id="withVoice"><span class="toggle-ui"></span></label>
-        <p class="field-help">الصوت كيتصاوب ويتضاف للفيديو؛ مزامنة الشفاه مازال ما مدعومة.</p>
+        <p class="field-help">فعّل الصوت وكتب فالوصف: الكلام: السلام عليكم. الصوت كيخدم محلياً.</p>
+      </div>
+      <div class="field-group">
+        <label class="toggle-line" for="lipSync"><span class="toggle-copy"><strong>🎤 تحريك الشفاه الحقيقي · MuseTalk 1.5</strong><small>الفم كيتزامن مع الصوت، ماشي تعليق صوتي فقط</small></span><input type="checkbox" id="lipSync"><span class="toggle-ui"></span></label>
+        <p class="field-help" id="lipSyncStatus" aria-live="polite">اختياري، مجاني ومحلي. خاص تثبيت MuseTalk 1.5 أول مرة، وكارت NVIDIA.</p>
+        <a class="field-help" href="https://github.com/ribhlab/RibhLab-RealMotion/blob/main/LIPSYNC_SETUP.md" target="_blank" rel="noopener noreferrer">📖 تثبيت تحريك الشفاه الحقيقي على Windows</a>
+        <p class="field-help">كيخدم على مقطع قصير فيه وجه واضح. بعد توليد الحركة، MuseTalk كيعدّل الفم على حسب الصوت. ما كيقلّدش صوت الشخص الحقيقي.</p>
       </div>
 
       <div class="truth-card"><span>ⓘ</span><div><strong>الجودة الحقيقية</strong><p>واجهة بإحساس استوديو احترافي، ولكن النتيجة كتتحدد بالموديل والعتاد. 6GB VRAM ما كتساويش موارد Adobe Firefly السحابية.</p></div></div>
@@ -173,6 +179,6 @@
   </div>
   <input id="fileInput" type="file" accept="image/png,image/jpeg,image/webp,video/mp4,video/webm,video/quicktime,video/x-m4v" multiple hidden>
 </div>
-<script src="/static/app.js?v=realm-quality-4"></script>
+<script src="/static/app.js?v=realm-lipsync-1"></script>
 </body>
 </html>
