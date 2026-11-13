@@ -234,6 +234,25 @@ def health():
             'devices': devices, 'macbook': worker}
 
 
+@app.get('/api/engines/wan/status')
+def wan_status():
+    """Inspect local ComfyUI node classes and model dropdowns, no GPU task."""
+    import httpx
+    from studio import ComfyClient, check_wan_ready
+    url = os.environ.get('COMFYUI_URL', 'http://127.0.0.1:8188')
+    try:
+        with ComfyClient(url) as comfy:
+            result = comfy.client.get('/object_info', timeout=20)
+            result.raise_for_status()
+            missing = check_wan_ready(result.json())
+        return {'engine': 'wan_ai', 'ready': not missing, 'missing': missing,
+                'cost': 'free_local', 'hardware_verified': False}
+    except (httpx.HTTPError, ValueError, TypeError, KeyError) as exc:
+        return {'engine': 'wan_ai', 'ready': False,
+                'missing': ['ComfyUI not reachable: ' + type(exc).__name__],
+                'cost': 'free_local', 'hardware_verified': False}
+
+
 @app.get('/api/engines/ltx/status')
 def ltx_status():
     """Non-generative validation: no GPU job, no paid API, no model download."""
