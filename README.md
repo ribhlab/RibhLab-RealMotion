@@ -6,6 +6,29 @@ RealMotion is **not** a slideshow maker. Every shot is submitted to actual video
 
 > **Status: development MVP (v0.1).** The UI, upload and storyboard API, Wan 2.2 GGUF (Q2) graph builders, ComfyUI queueing/download, optional voice generation, MP4 assembly and unit tests are implemented. The complete AI rendering pipeline has **not been executed end-to-end on a model-loaded GPU** in this environment. Face identity, accurate Darija lip-sync and prompt adherence depend on model quality and are **not guaranteed**. We deliberately do not claim otherwise.
 
+## 🎤 True local lip sync — MuseTalk 1.5 (NEW)
+
+**Actual audio-driven mouth motion** is now supported as an **optional** local
+postproduction step, independent from Wan/LTX diffusion and the existing voiceover.
+For a short **3–5 second** clip, use the modern Studio, add the phrase
+`الكلام: السلام عليكم` after the motion prompt, check **تعليق صوتي محلي**
+and **🎤 تحريك الشفاه الحقيقي · MuseTalk 1.5**. This synthesizes a generic
+voice on the PC, sends the generated MP4 + voice to **MuseTalk 1.5**, and
+verifies a real output video. The four-character project storyboard API
+also accepts `"lip_sync": true` on speaking scenes.
+
+A one-time separate Python 3.10 / MMLab installation is needed; click
+`Install-LipSync.bat` to set up the isolated MuseTalk checkout and download
+its model weights. See **[LIPSYNC_SETUP.md](LIPSYNC_SETUP.md)**.
+
+The official MuseTalk code is MIT and its published model permits
+commercial use, subject to the other dependency/weight licenses. Its
+authors report fp16 inference on a 4 GB RTX 3050 Ti laptop GPU; **the
+GTX 1660 SUPER 6 GB has not been verified end-to-end**. This option
+needs a visible face and may fail on rotated, stylized or poorly lit
+faces. Lip sync is not enabled for Stable Food or 10-minute mode.
+Audio-overlay-only mode remains available as before.
+
 ## 🖥️ Two-Windows-PC LAN mode (optional)
 
 For a NVIDIA GTX 1660 SUPER PC plus an Intel MacBook running Windows, the
@@ -26,7 +49,8 @@ RealMotion now runs video generation **on your own Windows NVIDIA GPU** using lo
 - **Start on Windows:** download the repo ZIP and double-click `Start-RealMotion.bat`.
 - **One-time Wan 5B download:** after first launch, double-click `Install-Wan-Motion-Models.bat` to fetch/verify official weights (about 10 GB).
 - **Optional one-click offline Arabic voice:** double-click `Install-Offline-Voice.bat`.
-- **First video WITH voice:** upload one driver's photo, click **🎤🎬 جرّب 5 ثواني بالصورة والصوت**. Wan Q2 generates real motion, Piper Arabic/Windows SAPI generates spoken audio, and FFmpeg merges both to MP4. This does **not** lip-sync the mouth.
+- **Optional true lip sync:** double-click `Install-LipSync.bat`, then enable **MuseTalk 1.5** in the Studio UI.
+- **First video WITH voice:** upload one driver's photo, click **🎤🎬 جرّب 5 ثواني بالصورة والصوت**. Wan Q2 generates real motion, Piper Arabic/Windows SAPI generates spoken audio, and FFmpeg merges both to MP4. This is a voiceover **unless you enable the optional MuseTalk 1.5 true lip-sync switch** after one-time installation.
 - **Longer movie:** upload four photos, then render six scenes as a 30-second MP4 using the same lightweight audio+video approach.
 - **One-time prerequisites:** Python 3.11+, FFmpeg, NVIDIA driver, ComfyUI Portable NVIDIA, downloaded Wan model files.
 - **Optional offline speech:** `windows/setup_voice.ps1` installs a local Arabic Piper model once; alternatively Windows SAPI or your own recordings can be used.
@@ -54,7 +78,7 @@ You can embed longer Arabic narration in the single prompt after `الكلام:`
 - Two genuine generation modes:
   - **Motion / car scene:** Wan2.2-TI2V-5B Q2 GGUF on local ComfyUI.
   - **Speaking soundtrack:** genuine AI-generated motion plus an offline Piper/Windows synthetic voice or uploaded recording. This is audio overlay, **not automatically synchronized lips**.
-  - **Optional future lip sync:** separate model/processing, not included in the lightweight 6 GB workflow.
+  - **True mouth synchronization:** optional local MuseTalk 1.5 postprocessing on existing AI-generated MP4 with synthesized/recorded voice, isolated from ComfyUI.
 - Optional uploaded dialogue recordings; or free **offline** speech synthesis with Piper Arabic or Windows SAPI. No cloud voice API is used.
 - A sequential job worker, progress endpoint, error reporting, FFmpeg transcoding and final MP4 download.
 - Photos/voices and generated clips remain under the local `local_data/` folder, which is excluded from Git.
