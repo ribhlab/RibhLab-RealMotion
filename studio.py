@@ -63,7 +63,7 @@ def image_to_video_graph(image_name: str, prompt: str, seconds: int, filename_pr
         "10": node("VAEDecode", samples=["9", 0], vae=["3", 0]),
         "11": node("CreateVideo", images=["10", 0], fps=FPS),
         "12": node("SaveVideo", video=["11", 0], filename_prefix=filename_prefix,
-                   format="auto", **{"format.codec": "auto"}),
+                   format="mp4", codec={"codec": "h264"}),
     }
 
 
@@ -123,7 +123,7 @@ def ltx_image_to_video_graph(
         "11": node("VAEDecode", samples=["10", 0], vae=["1", 2]),
         "12": node("CreateVideo", images=["11", 0], fps=fps),
         "13": node("SaveVideo", video=["12", 0], filename_prefix=filename_prefix,
-                   format="auto", **{"format.codec": "auto"}),
+                   format="mp4", codec={"codec": "h264"}),
     }
 
 
@@ -149,6 +149,47 @@ def check_ltx_ready(object_info: dict[str, Any]) -> list[str]:
     clip_types = choices("CLIPLoader", "type")
     if clip_types and "ltxv" not in clip_types:
         missing.append("CLIPLoader type 'ltxv' (update ComfyUI)")
+    return missing
+
+
+WAN_REQUIRED_NODES = (
+    "UnetLoaderGGUF", "CLIPLoader", "VAELoader", "LoadImage",
+    "CLIPTextEncode", "ModelSamplingSD3", "Wan22ImageToVideoLatent",
+    "KSampler", "VAEDecode", "CreateVideo", "SaveVideo",
+)
+
+
+def check_wan_ready(object_info: dict[str, Any]) -> list[str]:
+    """Check installed GGUF nodes and model dropdowns without touching the GPU.
+
+    Uses ComfyUI's own /object_info choices, so custom model paths work too.
+    """
+    missing = [kind for kind in WAN_REQUIRED_NODES if kind not in object_info]
+
+    def choices(kind: str, field: str) -> list[str]:
+        try:
+            values = object_info[kind]["input"]["required"][field][0]
+            return list(values) if isinstance(values, (list, tuple)) else []
+        except (KeyError, IndexError, TypeError):
+            return []
+
+    model = os.getenv("WAN_I2V_MODEL", "Wan2.2-TI2V-5B-Q2_K.gguf")
+    unet_loader = "UnetLoaderGGUF" if model.lower().endswith(".gguf") else "UNETLoader"
+    if not model.lower().endswith(".gguf"):
+        missing = [kind for kind in missing if kind != "UnetLoaderGGUF"]
+        if "UNETLoader" not in object_info:
+            missing.append("UNETLoader")
+    assets = [
+        (unet_loader, "unet_name", model, "Wan model"),
+        ("VAELoader", "vae_name", os.getenv("WAN_I2V_VAE", "wan2.2_vae.safetensors"), "Wan VAE"),
+        ("CLIPLoader", "clip_name", os.getenv("WAN_TEXT_ENCODER", "umt5_xxl_fp8_e4m3fn_scaled.safetensors"), "text encoder"),
+    ]
+    for kind, field, filename, label in assets:
+        if kind in object_info and filename not in choices(kind, field):
+            missing.append(f"{label}: {filename}")
+    clip_types = choices("CLIPLoader", "type")
+    if "CLIPLoader" in object_info and clip_types and "wan" not in clip_types:
+        missing.append("CLIPLoader type 'wan' (update ComfyUI)")
     return missing
 
 
@@ -185,7 +226,7 @@ def speech_to_video_graph(image_name: str, audio_name: str, prompt: str, seconds
         "13": node("VAEDecode", samples=["12", 0], vae=["3", 0]),
         "14": node("CreateVideo", images=["13", 0], fps=FPS, audio=["5", 0]),
         "15": node("SaveVideo", video=["14", 0], filename_prefix=filename_prefix,
-                   format="auto", **{"format.codec": "auto"}),
+                   format="mp4", codec={"codec": "h264"}),
     }
 
 
