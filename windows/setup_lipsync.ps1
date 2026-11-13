@@ -41,7 +41,9 @@ if ($LASTEXITCODE -ne 0) { throw 'MuseTalk requirements failed; review Windows c
 if ($LASTEXITCODE -ne 0) { throw 'OpenMIM installation failed' }
 foreach ($pkg in @('mmengine', 'mmcv==2.0.1', 'mmdet==3.1.0', 'mmpose==1.1.0')) {
   Write-Host "Installing $pkg..."
-  & $venv -m mim install $pkg
+  $mimExe = Join-Path $mu '.venv\Scripts\mim.exe'
+  if (-not (Test-Path $mimExe)) { throw 'OpenMIM executable missing after installation' }
+  & $mimExe install $pkg
   if ($LASTEXITCODE -ne 0) {
     throw ("MuseTalk dependency "+$pkg+" could not install on this Windows system. " +
       "This can require a compatible Windows CUDA wheel or MSVC Build Tools. See LIPSYNC_SETUP.md.")
