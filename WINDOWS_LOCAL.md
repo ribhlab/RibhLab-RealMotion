@@ -61,7 +61,7 @@ Extract it somewhere writable. Double-click **`Start-RealMotion.bat`**. The scri
 - installs local app dependencies into `.venv` on first launch;
 - detects the ComfyUI Portable folder and launches `run_nvidia_gpu.bat` if needed;
 - reports missing Wan model files;
-- opens the **real local studio** at http://127.0.0.1:8000.
+- opens the **real local studio** at http://127.0.0.1:8000 (or the next free port, such as 8001, if 8000 is already occupied). The console always prints and opens the **correct** URL.
 
 Keep its terminal open while rendering. The separate ComfyUI console must also stay open. For diagnostics:
 ```powershell
@@ -80,9 +80,23 @@ This downloads the Piper runtime and the `ar_JO-kareem-medium.onnx` Arabic model
 
 Voice model: https://huggingface.co/rhasspy/piper-voices/tree/main/ar/ar_JO/kareem/medium
 
+### No more WinError 10048 when port 8000 is occupied
+
+If an old RealMotion window or another application uses TCP port 8000,
+the updated `Start-RealMotion.bat` now safely chooses **8001, 8002, ...**
+and opens that exact localhost URL in your browser, without killing other
+processes. Do not manually type 8000 in this case: use the browser window
+that the launcher opened. Optional: set `REALMOTION_PORT` in your PowerShell
+session if you want to start searching from another local port.
+
+The **Wan / GGUF prerequisites** appear immediately under the Wan engine
+choice in the Studio UI. If the model or node is missing, the page tells you
+its exact filename and prevents a doomed GPU task. This checks ComfyUI's own
+installed node list and does not use paid services.
+
 ## Step 6 — upload only your four hero images
 
-Open **http://127.0.0.1:8000** on the Windows machine. For the first video+audio test **upload only the driver's photo** and press **«🎤🎬 جرّب 5 ثواني بالصورة والصوت»**. This uses the existing driver's dialogue as a synthetic Arabic voice, renders a genuine Wan GGUF motion clip, and combines voice + image as one MP4. Lips are NOT synchronized automatically. After this first test succeeds, upload the other three portraits and generate the full 30-second film. Your images, dialogue and renders are stored under `local_data/` on your own disk. They are excluded by `.gitignore`, so they are **not uploaded to GitHub**.
+Open the local URL printed by `Start-RealMotion.bat` on your Windows machine (normally **http://127.0.0.1:8000**, but another port can be selected if it is in use). For the first video+audio test **upload only the driver's photo** and press **«🎤🎬 جرّب 5 ثواني بالصورة والصوت»**. This uses the existing driver's dialogue as a synthetic Arabic voice, renders a genuine Wan GGUF motion clip, and combines voice + image as one MP4. Lips are NOT synchronized automatically. After this first test succeeds, upload the other three portraits and generate the full 30-second film. Your images, dialogue and renders are stored under `local_data/` on your own disk. They are excluded by `.gitignore`, so they are **not uploaded to GitHub**.
 
 **Important:** The GitHub Pages link is only the **download portal**. GitHub Pages has no access to your NVIDIA GPU. Opening `127.0.0.1:8000` on your phone opens the phone itself, not your computer. Use the browser on the same Windows PC for the default secure configuration. No public ports, tunnels or external services are enabled.
 
