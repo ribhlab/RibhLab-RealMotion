@@ -1,6 +1,6 @@
 'use strict';
 const $=id=>document.getElementById(id);
-const state={assets:[],active:null,busy:false,poller:null,job:null,lastJob:null,startedAt:0,pollErrors:0,logs:'',worker:'unknown',ltxReady:null,wanReady:null};
+const state={assets:[],active:null,busy:false,poller:null,job:null,lastJob:null,startedAt:0,pollErrors:0,logs:'',worker:'unknown',ltxReady:null,wanReady:null,comfyOnline:null};
 function status(message,kind='neutral'){
   $('status').textContent=message;$('status').dataset.kind=kind;
 }
@@ -255,6 +255,13 @@ async function check(){
   try{
     const health=await api('/api/health');
     const online=health.comfyui==='connected';
+    const connectedNow=online&&state.comfyOnline!==true;
+    state.comfyOnline=online;
+    if(connectedNow){
+      const selected=$('renderMode').value;
+      if(selected==='wan_ai'&&state.wanReady!==true)refreshWanReadiness();
+      if(selected==='ltx_2b'&&state.ltxReady!==true)refreshLtxReadiness();
+    }
     $('led').classList.toggle('online',online);
     $('connectivity').textContent=online?'ComfyUI متصل · NVIDIA':'ComfyUI غير متصل';
     state.worker=health.macbook||'unknown';
@@ -271,6 +278,7 @@ async function check(){
       ? '◉ MacBook · الصوت والمونتاج'
       : '◉ الحاسوب المحلي · الصوت والمونتاج';
   }catch(e){
+    state.comfyOnline=false;
     $('led').classList.remove('online');
     $('connectivity').textContent='سيرفر AI غير متصل';
     $('workerConnection').textContent='الحالة غير معروفة؛ راجع PowerShell';
