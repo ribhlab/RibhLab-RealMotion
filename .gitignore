@@ -16,3 +16,6 @@ models/
 
 # Local LAN worker authentication secret
 .worker_token
+
+# Optional MuseTalk checkout, packages and private generated work
+external/
